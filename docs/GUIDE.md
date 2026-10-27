@@ -28,6 +28,10 @@ A release is created once per `versionName` in `app/build.gradle`. Existing rele
 
 Use a permanent signing key so APKs from subsequent runs can update one another. To keep compatibility with your Android Studio debug build, use its existing default debug keystore (alias `androiddebugkey`, store/key passwords `android`). A custom signing configuration requires corresponding workflow changes.
 
+CI restores the key to a temporary file and passes its path explicitly through `MORNINGSKIP_KEYSTORE`. Before publishing, it checks that the APK certificate matches the certificate in that file. Local Android Studio builds continue to use the normal local debug key.
+
+**Updating from 1.0 or 1.0.1:** those public APKs have different signing certificates. If installation reports a signature conflict, uninstall the old copy once, install 1.0.2 or later, then re-enable Accessibility and Auto-close. Uninstalling removes app settings and logs.
+
 1. Build the app once in Android Studio so the key exists. In PowerShell, copy its Base64 representation to your clipboard:
 
    ```powershell

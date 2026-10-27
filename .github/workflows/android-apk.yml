@@ -27,6 +27,8 @@ jobs:
     timeout-minutes: 20
     outputs:
       version: ${{ steps.package.outputs.version }}
+    env:
+      MORNINGSKIP_KEYSTORE: ${{ runner.temp }}/morningskip-debug.keystore
     defaults:
       run:
         shell: bash
@@ -64,9 +66,9 @@ jobs:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
         run: |
           umask 077
-          mkdir -p "$HOME/.android"
-          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"
-          keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey > /dev/null
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$MORNINGSKIP_KEYSTORE"
+          keytool -exportcert -keystore "$MORNINGSKIP_KEYSTORE" -storepass android \
+            -alias androiddebugkey -file "$RUNNER_TEMP/morningskip-cert.der"
 
       - name: Build APK
         run: bash ./gradlew --no-daemon --console=plain assembleDebug
@@ -85,7 +87,15 @@ jobs:
           PYVERSION
           mkdir -p build/artifacts
           cp app/build/outputs/apk/debug/app-debug.apk build/artifacts/MorningSkip.apk
-          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs build/artifacts/MorningSkip.apk
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs build/artifacts/MorningSkip.apk \
+            | tee "$RUNNER_TEMP/morningskip-signature.txt"
+          expected=$(sha256sum "$RUNNER_TEMP/morningskip-cert.der" | cut -d ' ' -f 1)
+          actual=$(awk -F': ' '/^Signer #1 certificate SHA-256 digest:/ {print $2}' "$RUNNER_TEMP/morningskip-signature.txt")
+          if [[ -z "$actual" || "$actual" != "$expected" ]]; then
+            echo '::error::APK signature does not match the repository signing key. Publication stopped.'
+            exit 1
+          fi
+          echo "Signing key verified: $actual"
           cd build/artifacts
           sha256sum MorningSkip.apk > SHA256SUMS.txt
 
@@ -99,7 +109,7 @@ jobs:
 
       - name: Remove runner signing key
         if: always()
-        run: rm -f "$HOME/.android/debug.keystore"
+        run: rm -f "$MORNINGSKIP_KEYSTORE" "$RUNNER_TEMP/morningskip-cert.der"
 
   release:
     name: Publish version to Releases
@@ -147,6 +157,15 @@ jobs:
           This APK is a signed debug build, with local diagnostics export enabled.
           Other watch models and firmware versions are untested.
           NOTES
+          if [[ "$VERSION" == '1.0.2' ]]; then
+            cat >> release-notes.md <<'NOTES'
+
+          **Signing fix:** versions 1.0 and 1.0.1 were signed with different certificates.
+          If Android reports a signature conflict, uninstall the old copy once, install this APK,
+          and enable Accessibility and Auto-close again. Uninstalling removes app settings and logs.
+          This version explicitly uses the repository signing key and checks the APK certificate before publishing.
+          NOTES
+          fi
           gh release create "v$VERSION" MorningSkip.apk SHA256SUMS.txt \
             --target "$GITHUB_SHA" --title "MorningSkip $VERSION" \
             --notes-file release-notes.md

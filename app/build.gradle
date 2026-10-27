@@ -2,6 +2,11 @@ plugins {
     id 'com.android.application'
 }
 
+def ciKeystorePath = System.getenv('MORNINGSKIP_KEYSTORE')
+if (System.getenv('GITHUB_ACTIONS') == 'true' && !ciKeystorePath) {
+    throw new GradleException('MORNINGSKIP_KEYSTORE must point to the restored signing key in CI')
+}
+
 android {
     namespace 'io.github.jamatnat.morningskip'
     compileSdk 35
@@ -10,8 +15,8 @@ android {
         applicationId "io.github.jamatnat.morningskip"
         minSdk 30
         targetSdk 35
-        versionCode 2
-        versionName "1.0.1"
+        versionCode 3
+        versionName "1.0.2"
     }
 
     buildFeatures { buildConfig true }
@@ -21,9 +26,21 @@ android {
         targetCompatibility JavaVersion.VERSION_1_8
     }
 
+    signingConfigs {
+        debug {
+            if (ciKeystorePath) {
+                storeFile file(ciKeystorePath)
+                storePassword 'android'
+                keyAlias 'androiddebugkey'
+                keyPassword 'android'
+            }
+        }
+    }
+
     buildTypes {
         debug {
             debuggable true
+            signingConfig signingConfigs.debug
         }
         release {
             minifyEnabled false
