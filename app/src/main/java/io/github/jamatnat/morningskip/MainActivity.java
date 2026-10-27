@@ -3,6 +3,7 @@ package io.github.jamatnat.morningskip;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.res.ColorStateList;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -52,15 +53,19 @@ public class MainActivity extends Activity {
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         mainScroll = new ScrollView(this);
+        mainScroll.setBackgroundColor(0xff000000);
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setGravity(Gravity.CENTER_HORIZONTAL);
-        box.setPadding(dp(24), dp(36), dp(24), dp(44));
-        addText(box, "MorningSkip", 22);
-        addText(box, "Version " + BuildConfig.VERSION_NAME, 12);
-        addText(box, "1. Open Accessibility and enable MorningSkip.\n\n" +
-                "2. Return here and turn Auto-close ON.", 13);
-        serviceStatus = addText(box, "", 12);
+        // Keep the compact single-column layout and spacing of the original app.
+        int pad = dp(18);
+        box.setPadding(pad, pad, pad, pad);
+        addText(box, "MorningSkip v" + BuildConfig.VERSION_NAME, 19);
+        TextView setup = addText(box, "Enable MorningSkip in Accessibility,\nthen turn Auto-close ON.", 12);
+        setup.setPadding(0, dp(6), 0, dp(6));
+        serviceStatus = addText(box, "", 13);
+        autoButton = addButton(box, "");
+        autoButton.setOnClickListener(v -> toggleAutoClose());
         Button accessibility = addButton(box, "Open Accessibility");
         accessibility.setOnClickListener(v -> {
             try { startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)); }
@@ -68,27 +73,18 @@ public class MainActivity extends Activity {
                 Toast.makeText(this, "Open Accessibility in watch Settings", Toast.LENGTH_LONG).show();
             }
         });
-        autoButton = addButton(box, "");
-        autoButton.setOnClickListener(v -> toggleAutoClose());
-
-        View divider = new View(this);
-        divider.setBackgroundColor(0xff555555);
-        LinearLayout.LayoutParams line = new LinearLayout.LayoutParams(-1, dp(1));
-        line.setMargins(dp(12), dp(20), dp(12), dp(12));
-        box.addView(divider, line);
-        addText(box, "Diagnostics", 17);
-        addText(box, "Build a ZIP for troubleshooting, then copy it to your computer using ADB. " +
-                "Clear removes saved logs and the ZIP; settings stay unchanged.", 12);
+        TextView diagnostics = addText(box, "Diagnostics", 13);
+        diagnostics.setPadding(0, dp(8), 0, dp(2));
+        addText(box, "Save or clear troubleshooting logs.", 11);
         zipButton = addButton(box, "Build diagnostics ZIP");
         zipButton.setOnClickListener(v -> runDiagnostics(true));
         clearButton = addButton(box, "Clear diagnostics");
         clearButton.setOnClickListener(v -> runDiagnostics(false));
-        diagnosticsStatus = addText(box, "Export instructions are on GitHub: jamatnat/morning-skip", 11);
-        addText(box, "How it works", 17);
-        addText(box, "With Accessibility connected and Auto-close ON, MorningSkip watches for the " +
-                "OnePlus greeting and asks the watch controller to dismiss it. If the greeting remains " +
-                "visible, it tries its Close button with limited retries. You can leave this app screen. " +
-                "Turn Auto-close OFF to stop automatic closing.", 12);
+        diagnosticsStatus = addText(box, "", 11);
+        diagnosticsStatus.setVisibility(View.GONE);
+        TextView hint = addText(box, "Closes the OnePlus greeting automatically.\n" +
+                "Keep the service enabled; you can leave this screen.", 11);
+        hint.setPadding(0, dp(6), 0, 0);
         mainScroll.addView(box);
         setContentView(mainScroll);
         mainScroll.setFocusable(true);
@@ -102,18 +98,24 @@ public class MainActivity extends Activity {
         view.setText(text);
         view.setTextSize(size);
         view.setGravity(Gravity.CENTER);
-        view.setPadding(0, dp(6), 0, dp(6));
-        box.addView(view, new LinearLayout.LayoutParams(-1, -2));
+        view.setTextColor(0xffeeeeee);
+        box.addView(view);
         return view;
     }
 
     private Button addButton(LinearLayout box, String text) {
         Button button = new Button(this);
         button.setText(text);
-        button.setAllCaps(false);
-        button.setTextSize(13);
-        button.setMinHeight(dp(48));
-        box.addView(button, new LinearLayout.LayoutParams(-1, -2));
+        // Explicit contrast avoids relying on vendor theme button/text colors.
+        button.setTextColor(new ColorStateList(
+                new int[][] { new int[] {-android.R.attr.state_enabled}, new int[] {} },
+                new int[] {0xffaaaaaa, 0xffffffff}));
+        button.setBackgroundTintList(new ColorStateList(
+                new int[][] { new int[] {-android.R.attr.state_enabled},
+                        new int[] {android.R.attr.state_pressed},
+                        new int[] {android.R.attr.state_focused}, new int[] {} },
+                new int[] {0xff202020, 0xff505050, 0xff505050, 0xff303030}));
+        box.addView(button);
         return button;
     }
 
@@ -131,7 +133,7 @@ public class MainActivity extends Activity {
     private void updateStatus() {
         boolean connected = SysUiProbeService.connectedForUi;
         serviceStatus.setText(connected ? "Service: connected" : ServiceStatus.enabled(this) ?
-                "Service: enabled, waiting for connection" : "Service: OFF — enable in Accessibility");
+                "Service: connecting" : "Service: OFF");
         serviceStatus.setTextColor(connected ? 0xff80e080 : 0xffffb060);
         boolean enabled = getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_MCU_AUTOCLOSE, false);
         autoButton.setText("Good Morning Auto-close: " + (enabled ? "ON" : "OFF"));
@@ -152,13 +154,13 @@ public class MainActivity extends Activity {
     private void runDiagnostics(boolean export) {
         zipButton.setEnabled(false);
         clearButton.setEnabled(false);
+        diagnosticsStatus.setVisibility(View.VISIBLE);
         diagnosticsStatus.setText(export ? "Building ZIP…" : "Clearing…");
         DIAGNOSTICS_WORKER.execute(() -> {
             String result;
             try {
                 if (export) buildZip(); else clearDiagnostics();
-                result = export ? "diagnostics.zip ready. Copy it using ADB; see GitHub instructions." :
-                        "Diagnostics cleared. The connected service can start new logs.";
+                result = export ? "ZIP ready. Export using ADB." : "Diagnostics cleared.";
             } catch (IOException e) {
                 result = (export ? "ZIP failed: " : "Clear failed: ") + e.getClass().getSimpleName();
             }

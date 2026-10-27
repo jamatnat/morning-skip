@@ -1,5 +1,5 @@
 <resources>
-    <style name="AppTheme" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+    <style name="AppTheme" parent="@android:style/Theme.DeviceDefault">
         <item name="android:windowActionModeOverlay">true</item>
         <item name="android:fontFamily">sans</item>
     </style>
