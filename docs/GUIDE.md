@@ -22,7 +22,9 @@ Android's normal local debug key is used. No signing key is included. Keep the s
 
 ## GitHub Actions setup
 
-The **Android APK** workflow runs manually or when app/build/test files change on `main`. It runs policy checks, builds a debug APK and uploads it with a SHA-256 checksum. Artifacts are kept for 30 days.
+The **Android APK** workflow runs manually or when app/build/test files change on `main`. It runs policy checks, builds a debug APK and publishes a new app version to **Releases**, with a SHA-256 checksum. Actions artifacts are also kept for 30 days.
+
+A release is created once per `versionName` in `app/build.gradle`. Existing releases and their APKs are left unchanged. For the next release, increase both `versionName` and `versionCode`, then push to `main`.
 
 Use a permanent signing key so APKs from subsequent runs can update one another. To keep compatibility with your Android Studio debug build, use its existing default debug keystore (alias `androiddebugkey`, store/key passwords `android`). A custom signing configuration requires corresponding workflow changes.
 
@@ -34,13 +36,13 @@ Use a permanent signing key so APKs from subsequent runs can update one another.
 
 2. Open repository **Settings → Secrets and variables → Actions → New repository secret**. Name it `ANDROID_DEBUG_KEYSTORE_BASE64`, paste the clipboard into **Secret**, and save. Keep the key private and back up the original file.
 3. Open **Actions → Android APK → Run workflow**, select `main`, and run it. If a previous run stopped at **Check signing secret**, you can also use **Re-run all jobs** after adding the secret.
-4. Open the successful run and download **MorningSkip-apk-…** under **Artifacts**. Extract `MorningSkip.apk` and install it with ADB:
+4. After a successful run, open **Releases** and download **MorningSkip.apk** under **Assets**. Install it with ADB:
 
    ```text
    adb -s WATCH_IP:CONNECTION_PORT install -r MorningSkip.apk
    ```
 
-You must be signed into GitHub to download Actions artifacts. These are debug builds, so the ADB diagnostics export below remains available. A missing signing secret stops the workflow instead of silently generating a different key. Do not replace the secret with a new key unless you intend to change signing identity.
+Release APKs can be downloaded without signing in. Intermediate builds remain available under the run’s **Artifacts** as **MorningSkip-apk-…**; those downloads require signing in. These are debug builds, so the ADB diagnostics export below remains available. A missing signing secret stops the workflow instead of silently generating a different key. Do not replace the secret with a new key unless you intend to change signing identity.
 
 ## Install over wireless ADB
 

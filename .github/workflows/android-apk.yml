@@ -25,6 +25,8 @@ jobs:
     name: Build signed debug APK
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    outputs:
+      version: ${{ steps.package.outputs.version }}
     defaults:
       run:
         shell: bash
@@ -70,7 +72,17 @@ jobs:
         run: bash ./gradlew --no-daemon --console=plain assembleDebug
 
       - name: Verify and package APK
+        id: package
         run: |
+          python3 - <<'PYVERSION'
+          import json, os, re
+          with open('app/build/outputs/apk/debug/output-metadata.json') as f:
+              version = json.load(f)['elements'][0]['versionName']
+          if not re.fullmatch(r'[0-9]+(?:\.[0-9]+){1,2}', version):
+              raise SystemExit('Public releases require a numeric version such as 1.0 or 1.0.1')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write('version=' + version + '\n')
+          PYVERSION
           mkdir -p build/artifacts
           cp app/build/outputs/apk/debug/app-debug.apk build/artifacts/MorningSkip.apk
           "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs build/artifacts/MorningSkip.apk
@@ -88,3 +100,53 @@ jobs:
       - name: Remove runner signing key
         if: always()
         run: rm -f "$HOME/.android/debug.keystore"
+
+  release:
+    name: Publish version to Releases
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - name: Check for an existing release
+        id: release
+        shell: bash
+        run: |
+          if gh release view "v$VERSION" > /dev/null 2>&1; then
+            echo 'publish=false' >> "$GITHUB_OUTPUT"
+            echo "Release v$VERSION already exists; leaving its APK unchanged."
+          else
+            echo 'publish=true' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download verified APK
+        if: steps.release.outputs.publish == 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: MorningSkip-apk-${{ github.run_number }}
+          path: artifacts
+
+      - name: Publish APK and checksum
+        if: steps.release.outputs.publish == 'true'
+        shell: bash
+        run: |
+          cd artifacts
+          sha256sum --check SHA256SUMS.txt
+          cat > release-notes.md <<'NOTES'
+          Automatically dismiss the OnePlus Watch 3 greeting.
+
+          Download **MorningSkip.apk** below and install it on your watch using ADB.
+          Enable **MorningSkip** in Accessibility, then turn **Good Morning Auto-close ON**.
+
+          This APK is a signed debug build, with local diagnostics export enabled.
+          Other watch models and firmware versions are untested.
+          NOTES
+          gh release create "v$VERSION" MorningSkip.apk SHA256SUMS.txt \
+            --target "$GITHUB_SHA" --title "MorningSkip $VERSION" \
+            --notes-file release-notes.md
