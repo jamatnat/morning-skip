@@ -10,7 +10,9 @@ Developed on OnePlus Watch 3. Other devices and firmware versions are untested; 
 
 ## Build and install
 
-Download this repository (**Code → Download ZIP**), extract it, and open the project folder in **Android Studio**. Let Gradle sync, then build a **debug APK**.
+**GitHub:** open **Actions → Android APK → Run workflow**. When the build finishes, download `MorningSkip-apk-…` from **Artifacts** and extract `MorningSkip.apk`. Repository owners need to [set up the signing secret](docs/GUIDE.md#github-actions-setup) once.
+
+**Android Studio:** Download this repository (**Code → Download ZIP**), extract it, and open the project folder in **Android Studio**. Let Gradle sync, then build a **debug APK**.
 
 Install `app/build/outputs/apk/debug/app-debug.apk` on the watch using ADB. See the [build and installation guide](docs/GUIDE.md#build) for requirements, pairing and commands.
 
