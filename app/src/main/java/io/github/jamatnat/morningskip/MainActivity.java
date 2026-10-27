@@ -42,7 +42,7 @@ public class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private Button autoButton, zipButton, clearButton;
     private ScrollView mainScroll;
-    private TextView serviceStatus, diagnosticsStatus;
+    private TextView serviceStatus, accessibilityStatus, diagnosticsStatus;
     private final Runnable refreshStatus = new Runnable() {
         @Override public void run() {
             updateStatus();
@@ -59,11 +59,14 @@ public class MainActivity extends Activity {
         box.setGravity(Gravity.CENTER_HORIZONTAL);
         // Keep the compact single-column layout and spacing of the original app.
         int pad = dp(18);
-        box.setPadding(pad, pad, pad, pad);
-        addText(box, "MorningSkip v" + BuildConfig.VERSION_NAME, 19);
+        int edgePad = getResources().getConfiguration().isScreenRound() ? dp(32) : pad;
+        box.setPadding(pad, edgePad, pad, edgePad);
+        TextView title = addText(box, "MorningSkip v" + BuildConfig.VERSION_NAME, 17);
+        title.setPadding(dp(12), 0, dp(12), 0);
         TextView setup = addText(box, "Enable MorningSkip in Accessibility,\nthen turn Auto-close ON.", 12);
         setup.setPadding(0, dp(6), 0, dp(6));
         serviceStatus = addText(box, "", 13);
+        accessibilityStatus = addText(box, "", 13);
         autoButton = addButton(box, "");
         autoButton.setOnClickListener(v -> toggleAutoClose());
         Button accessibility = addButton(box, "Open Accessibility");
@@ -82,9 +85,8 @@ public class MainActivity extends Activity {
         clearButton.setOnClickListener(v -> runDiagnostics(false));
         diagnosticsStatus = addText(box, "", 11);
         diagnosticsStatus.setVisibility(View.GONE);
-        TextView hint = addText(box, "Closes the OnePlus greeting automatically.\n" +
-                "Keep the service enabled; you can leave this screen.", 11);
-        hint.setPadding(0, dp(6), 0, 0);
+        TextView hint = addText(box, "Closes the OnePlus greeting.\nYou can leave this screen.", 11);
+        hint.setPadding(dp(12), dp(6), dp(12), 0);
         mainScroll.addView(box);
         setContentView(mainScroll);
         mainScroll.setFocusable(true);
@@ -131,12 +133,18 @@ public class MainActivity extends Activity {
     }
 
     private void updateStatus() {
-        boolean connected = SysUiProbeService.connectedForUi;
-        serviceStatus.setText(connected ? "Service: connected" : ServiceStatus.enabled(this) ?
-                "Service: connecting" : "Service: OFF");
-        serviceStatus.setTextColor(connected ? 0xff80e080 : 0xffffb060);
-        boolean enabled = getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_MCU_AUTOCLOSE, false);
-        autoButton.setText("Good Morning Auto-close: " + (enabled ? "ON" : "OFF"));
+        boolean accessibilityEnabled = ServiceStatus.enabled(this);
+        boolean connected = accessibilityEnabled && SysUiProbeService.connectedForUi;
+        boolean autoClose = getSharedPreferences(PREFS, MODE_PRIVATE)
+                .getBoolean(KEY_MCU_AUTOCLOSE, false);
+        boolean active = connected && autoClose;
+        serviceStatus.setText(active ? "Service: ON" : "Service: OFF");
+        serviceStatus.setTextColor(active ? 0xff80e080 : 0xffff7070);
+        accessibilityStatus.setText(connected ? "Accessibility: ON" :
+                accessibilityEnabled ? "Accessibility: connecting" : "Accessibility: OFF");
+        accessibilityStatus.setTextColor(connected ? 0xff80e080 :
+                accessibilityEnabled ? 0xffffb060 : 0xffff7070);
+        autoButton.setText("Good Morning Auto-close: " + (autoClose ? "ON" : "OFF"));
     }
 
     private void toggleAutoClose() {

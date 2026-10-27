@@ -21,8 +21,8 @@ After installation, enable MorningSkip as described below.
 
 1. Open MorningSkip and tap **Open Accessibility**.
 2. Enable the **MorningSkip** service in watch settings.
-3. Return to the app and wait for **Service: connected**.
-4. Set **Good Morning Auto-close: ON**.
+3. Return to the app and wait for **Accessibility: ON**.
+4. Set **Good Morning Auto-close: ON**. **Service: ON** turns green when Accessibility is connected and Auto-close is enabled.
 
 You can now leave the app. Set Auto-close to **OFF** to stop closing greetings, or disable the Accessibility service to stop logging as well.
 
