@@ -10,7 +10,11 @@ Developed on OnePlus Watch 3. Other devices and firmware versions are untested; 
 
 ## Build and install
 
-**Download the APK:** open [Releases](https://github.com/jamatnat/morning-skip/releases/latest) and download **MorningSkip.apk** under **Assets**. Install it on the watch using ADB; Android Studio is not required.
+**Download the APK:** open [Releases](https://github.com/jamatnat/morning-skip/releases/latest) and download **MorningSkip.apk** under **Assets**. Android Studio is not required.
+
+**From an Android phone:** use [WearLoad](https://wearload.github.io/index_en.html) to install the downloaded APK on your watch. Follow its setup guide and [video tutorial](https://www.youtube.com/watch?v=cRqN0rvqA00), then select `MorningSkip.apk` on your phone and confirm installation on the watch.
+
+**From a computer:** use the [ADB installation instructions](docs/GUIDE.md#install-over-wireless-adb).
 
 **Android Studio:** Download this repository (**Code → Download ZIP**), extract it, and open the project folder in **Android Studio**. Let Gradle sync, then build a **debug APK**.
 
