@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">MorningSkip</string>
+    <string name="service_name">MorningSkip</string>
+    <string name="service_description">Detects the OnePlus Good Morning greeting and presses its Close button when auto-close is enabled. Records diagnostics for troubleshooting.</string>
+</resources>
