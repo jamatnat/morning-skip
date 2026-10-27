@@ -8,17 +8,14 @@ Automatically dismiss the **“Good morning” greeting on OnePlus Watch 3**, in
 
 Developed on OnePlus Watch 3. Other devices and firmware versions are untested; version 1.0 still needs on-watch validation.
 
-## Build and install
+## Installation
 
-**Download the APK:** open [Releases](https://github.com/jamatnat/morning-skip/releases/latest) and download **MorningSkip.apk** under **Assets**. Android Studio is not required.
+Download **MorningSkip.apk** from [Releases → Assets](https://github.com/jamatnat/morning-skip/releases/latest), then choose how to install it on your watch:
 
-**From an Android phone:** use [WearLoad](https://wearload.github.io/index_en.html) to install the downloaded APK on your watch. Follow its setup guide and [video tutorial](https://www.youtube.com/watch?v=cRqN0rvqA00), then select `MorningSkip.apk` on your phone and confirm installation on the watch.
+- **Android phone:** use [WearLoad](https://wearload.github.io/index_en.html). Follow its setup guide or [video tutorial](https://www.youtube.com/watch?v=cRqN0rvqA00), select `MorningSkip.apk` on your phone, and confirm installation on the watch.
+- **Computer:** follow the [ADB installation instructions](docs/GUIDE.md#install-over-wireless-adb).
 
-**From a computer:** use the [ADB installation instructions](docs/GUIDE.md#install-over-wireless-adb).
-
-**Android Studio:** Download this repository (**Code → Download ZIP**), extract it, and open the project folder in **Android Studio**. Let Gradle sync, then build a **debug APK**.
-
-Install `app/build/outputs/apk/debug/app-debug.apk` on the watch using ADB. See the [build and installation guide](docs/GUIDE.md#build) for requirements, pairing and commands.
+After installation, enable MorningSkip as described below.
 
 ## Enable
 
@@ -44,6 +41,10 @@ Copy the ZIP to your computer using the [ADB export instructions](docs/GUIDE.md#
 
 For a bug report, include your watch model, firmware, app version and what happened.
 
-## Development
+## Build from source
+
+To build your own APK, download this repository (**Code → Download ZIP**), extract it, and open the project folder in **Android Studio**. Let Gradle sync, then build a **debug APK**.
+
+Output: `app/build/outputs/apk/debug/app-debug.apk`. Install it using either method in [Installation](#installation).
 
 [Build requirements and tests](docs/GUIDE.md) · [Protocol notes](docs/PROTOCOL.md)
