@@ -1,0 +1,84 @@
+# Build, install and diagnostics
+
+## Build
+
+Open this repository's root folder in Android Studio, let Gradle sync, and build a **debug APK**. The project uses JDK 17, Android SDK 35, Android Gradle Plugin 8.7.3 and the included Gradle 8.9 wrapper.
+
+Or, with JDK 17 and Android SDK 35 configured:
+
+```powershell
+.\gradlew.bat assembleDebug
+```
+
+On Linux/macOS:
+
+```sh
+./gradlew assembleDebug
+```
+
+Output: `app/build/outputs/apk/debug/app-debug.apk`.
+
+Android's normal local debug key is used. No signing key is included. Keep the same local key for future updates; APKs built with a different key cannot replace an installed copy without uninstalling it first.
+
+## Install over wireless ADB
+
+Enable Developer options and Wireless debugging on the watch. Keep the computer and watch on the same Wi-Fi network.
+
+1. Open **Pair new device** on the watch. Use the address and **pairing port** shown there, then enter its pairing code:
+
+   ```text
+   adb pair WATCH_IP:PAIRING_PORT
+   ```
+
+2. Return to the main **Wireless debugging** screen. Use its **connection port**, which is different from the pairing port:
+
+   ```text
+   adb connect WATCH_IP:CONNECTION_PORT
+   adb devices
+   ```
+
+3. Install the APK from the repository folder:
+
+   ```text
+   adb -s WATCH_IP:CONNECTION_PORT install -r app/build/outputs/apk/debug/app-debug.apk
+   ```
+
+Replace the placeholders with the values currently displayed on your watch. Ports can change. Pairing is normally needed only once; reconnect using the current connection port.
+
+## Export diagnostics
+
+After the app shows **diagnostics.zip ready**, copy the file from a **debug build**. With **PowerShell 7.4 or newer**, in the directory where you want to save it:
+
+```powershell
+adb -s WATCH_IP:CONNECTION_PORT exec-out run-as io.github.jamatnat.morningskip cat files/diagnostics.zip > .\morning-skip-diagnostics.zip
+```
+
+With Windows PowerShell 5.1 or an older PowerShell version, run the redirect through `cmd.exe` to preserve ZIP bytes:
+
+```powershell
+cmd /c "adb -s WATCH_IP:CONNECTION_PORT exec-out run-as io.github.jamatnat.morningskip cat files/diagnostics.zip > morning-skip-diagnostics.zip"
+```
+
+On Linux/macOS:
+
+```sh
+adb -s WATCH_IP:CONNECTION_PORT exec-out run-as io.github.jamatnat.morningskip cat files/diagnostics.zip > morning-skip-diagnostics.zip
+```
+
+`run-as` requires a debuggable APK. A normal release build cannot use this export method. Rebuild the ZIP after reproducing a problem; an existing ZIP does not update automatically.
+
+When reporting a problem, include the approximate time, watch firmware, app version, what appeared, and what you pressed. Review logs before sharing: they can include system UI text and controller payloads, which may contain personal information. Avoid posting an unreviewed ZIP in a public issue.
+
+## Development checks
+
+Pure Java policy checks need a JDK, but no watch or Android SDK:
+
+```powershell
+.\tests\run-tests.ps1
+```
+
+```sh
+sh tests/run-tests.sh
+```
+
+The suite covers 144 assertions/checks for UI dismissal, controller decoding/closing, and recovery limits. See [protocol notes](PROTOCOL.md) for the vendor message mapping.
