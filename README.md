@@ -1,5 +1,7 @@
 # MorningSkip
 
+**[⬇ Download APK](https://github.com/jamatnat/morning-skip/releases/latest/download/MorningSkip.apk)** · [Installation & setup](#installation)
+
 Automatically dismiss the **“Good morning” greeting on OnePlus Watch 3**, including its afternoon and evening variants.
 
 - Runs through an Accessibility service; no need to keep the app screen open.
@@ -10,7 +12,7 @@ Developed on OnePlus Watch 3. Other devices and firmware versions are untested; 
 
 ## Installation
 
-Download **MorningSkip.apk** from [Releases → Assets](https://github.com/jamatnat/morning-skip/releases/latest), then choose how to install it on your watch:
+[Download MorningSkip.apk](https://github.com/jamatnat/morning-skip/releases/latest/download/MorningSkip.apk), then choose how to install it on your watch:
 
 - **Android phone:** use [WearLoad](https://wearload.github.io/index_en.html). Follow its setup guide or [video tutorial](https://www.youtube.com/watch?v=cRqN0rvqA00), select `MorningSkip.apk` on your phone, and confirm installation on the watch.
 - **Computer:** follow the [ADB installation instructions](docs/GUIDE.md#install-over-wireless-adb).
