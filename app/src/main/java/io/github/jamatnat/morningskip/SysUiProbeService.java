@@ -65,24 +65,8 @@ public class SysUiProbeService extends AccessibilityService {
     private String lastScanSummary = "";
     private volatile boolean serviceRunning;
     static volatile boolean connectedForUi;
-    private final McuCloseController mcuCloseController = new McuCloseController();
+    private final NativeReadyGate nativeReady = new NativeReadyGate();
     private final GreetingRecoveryPolicy greetingRecovery = new GreetingRecoveryPolicy();
-    private PowerManager.WakeLock mcuWakeLock;
-    private boolean mcuVerificationPending;
-    private long mcuCloseSentElapsed;
-    private long lastMcuQueryElapsed = -1;
-    private final Runnable verifyMcuQuery = () -> {
-        if (serviceRunning && autoCloseEnabled() && mcuVerificationPending &&
-                SystemClock.elapsedRealtime() - mcuCloseSentElapsed <= 3000) {
-            queryMcuGreeting("verify-close");
-        }
-    };
-    private final Runnable verifyMcuTimeout = () -> {
-        if (mcuVerificationPending) {
-            writeDiag("MCU v1.0 CLOSE_UNVERIFIED: no hidden-state report; send is not proof of closure");
-        }
-        finishMcuVerification();
-    };
     private DisplayManager displayManager;
     private PowerManager.WakeLock dismissWakeLock;
     private SharedPreferences preferences;
@@ -101,11 +85,10 @@ public class SysUiProbeService extends AccessibilityService {
                 dismissController.observe(SystemClock.elapsedRealtime(), false,
                         DismissController.Observation.UNKNOWN, -1);
                 releaseDismissWakeLock();
-                mcuCloseController.reset();
+                nativeReady.reset();
                 greetingRecovery.reset();
-                finishMcuVerification();
             } else {
-                initMcuBridge(true);
+                initMcuBridge();
             }
             writeDiag("A11Y v1.0 autoClose=" + autoCloseEnabled());
             kickWatchdog();
@@ -246,7 +229,8 @@ public class SysUiProbeService extends AccessibilityService {
 
         registerReceivers();
         connectedForUi = true;
-        initMcuBridge(autoCloseEnabled());
+        initMcuBridge();
+        writeDiag("CLOSE_MODE=native-ui-only controllerCommands=false");
         handler.removeCallbacks(greetingWatchdog);
         handler.post(greetingWatchdog);
         writeDiag("A11Y v1.0 watchdog started onMs=" + WATCHDOG_ON_MS + " dozeMs=" + WATCHDOG_DOZE_MS +
@@ -266,6 +250,7 @@ public class SysUiProbeService extends AccessibilityService {
                         handler.post(greetingWatchdog);
                     } else if (Intent.ACTION_SCREEN_OFF.equals(action)) {
                         writeDiag("SCREEN_OFF");
+                        nativeReady.reset();
                         kickWatchdog();
                     }
                 }
@@ -360,8 +345,16 @@ public class SysUiProbeService extends AccessibilityService {
                         greetingRecovery.hiddenAgeMs(nowElapsed) + " windowId=" + snapshot.windowId +
                         " detail=" + snapshot.detail);
             }
+            boolean ready = nativeReady.observe(nowElapsed,
+                    enabled && isInteractiveNow() && currentDisplayState() == Display.STATE_ON && snapshot.canTap,
+                    snapshot.observation == DismissController.Observation.TARGET,
+                    snapshot.windowId, snapshot.bounds.toShortString());
+            DismissController.Observation observation = snapshot.observation;
+            if (!isInteractiveNow() || currentDisplayState() != Display.STATE_ON ||
+                    (observation == DismissController.Observation.TARGET && !ready))
+                observation = DismissController.Observation.UNKNOWN;
             DismissController.Action action = dismissController.observe(nowElapsed, enabled,
-                    snapshot.observation, snapshot.windowId);
+                    observation, snapshot.windowId);
             String summary = snapshot.observation + " " + snapshot.detail;
             if (!summary.equals(lastScanSummary) || nowElapsed - lastScanLogElapsed >= HEALTH_LOG_MS) {
                 lastScanSummary = summary;
@@ -395,13 +388,6 @@ public class SysUiProbeService extends AccessibilityService {
             } else if (action == DismissController.Action.TIMED_OUT) {
                 writeDiag("A11Y v1.0 CLOSE_UNVERIFIED: " + summary + " retryAfterMs=" +
                         dismissController.retryDelayMs());
-                // Only a fresh visible target permits recovery. OFF/occluded/missing trees do not.
-                if (greetingRecovery.allowQuery(nowElapsed, enabled, snapshot.observation,
-                        snapshot.windowId, true)) {
-                    boolean sent = queryMcuGreeting("ui-close-timeout windowId=" + snapshot.windowId);
-                    writeDiag("RECOVERY v1.0 QUERY windowId=" + snapshot.windowId + " attempt=" +
-                            greetingRecovery.queries() + " callAccepted=" + sent);
-                }
                 releaseDismissWakeLock();
             } else if (action == DismissController.Action.CANCELLED) {
                 writeDiag("A11Y v1.0 attempt cancelled: auto-close disabled");
@@ -604,9 +590,8 @@ public class SysUiProbeService extends AccessibilityService {
     public boolean onUnbind(Intent intent) {
         connectedForUi = false;
         serviceRunning = false;
-        mcuCloseController.reset();
+        nativeReady.reset();
         greetingRecovery.reset();
-        finishMcuVerification();
         writeDiag("SERVICE UNBOUND");
         return super.onUnbind(intent);
     }
@@ -615,9 +600,8 @@ public class SysUiProbeService extends AccessibilityService {
     public void onDestroy() {
         connectedForUi = false;
         serviceRunning = false;
-        mcuCloseController.reset();
+        nativeReady.reset();
         greetingRecovery.reset();
-        finishMcuVerification();
         if (preferences != null) preferences.unregisterOnSharedPreferenceChangeListener(preferenceListener);
         if (displayManager != null) displayManager.unregisterDisplayListener(displayListener);
         try { if (screenReceiver != null) unregisterReceiver(screenReceiver); } catch (Throwable ignored) {}
@@ -627,7 +611,7 @@ public class SysUiProbeService extends AccessibilityService {
         super.onDestroy();
     }
 
-    private synchronized void initMcuBridge(boolean sendQuery) {
+    private synchronized void initMcuBridge() {
         try {
             if (mcuManager == null || mcuListener == null || !mcuRegistered) {
                 writeDiag("MCU INIT begin");
@@ -668,7 +652,6 @@ public class SysUiProbeService extends AccessibilityService {
                 writeDiag("MCU REGISTER already active");
             }
 
-            if (sendQuery) queryMcuGreeting("startup-or-manual-check");
         } catch (Throwable t) {
             writeDiag("MCU ERROR " + throwableChain(t));
         }
@@ -702,88 +685,18 @@ public class SysUiProbeService extends AccessibilityService {
         }
     }
 
-    private boolean queryMcuGreeting(String reason) {
-        if (!serviceRunning || !mcuRegistered) return false;
-        long elapsed = SystemClock.elapsedRealtime();
-        if (lastMcuQueryElapsed >= 0 && elapsed - lastMcuQueryElapsed < 1000) return false;
-        lastMcuQueryElapsed = elapsed;
-        return sendMcuCommand(McuGreetingProtocol.QUERY, McuGreetingProtocol.queryPayload(), reason);
-    }
-
-    private boolean sendMcuCommand(int messageId, byte[] payload, String reason) {
-        if (!serviceRunning || !mcuRegistered) return false;
-        try {
-            Method send = mcuManagerClass.getDeclaredMethod(
-                    "sendMessageToMcu", int.class, int.class, byte[].class);
-            send.setAccessible(true);
-            Object result = send.invoke(mcuManager, McuGreetingProtocol.CLASS_ID, messageId, payload);
-            boolean accepted = !(result instanceof Boolean) || (Boolean) result;
-            writeDiag("MCU v1.0 SEND classId=10 msgId=" + messageId + " hex=" + toHex(payload, 32) +
-                    " apiResult=" + result + " callAccepted=" + accepted +
-                    " closureConfirmed=false reason=" + reason);
-            return accepted;
-        } catch (Throwable t) {
-            writeDiag("MCU v1.0 SEND_ERROR msgId=" + messageId + " " + throwableChain(t));
-            return false;
-        }
-    }
-
     private void handleMcuGreeting(int classId, int messageId, int messageType, byte[] payload, long received) {
         if (!serviceRunning) return;
         McuGreetingProtocol.State state = McuGreetingProtocol.decode(classId, messageId, messageType, payload);
         if (state == null) {
-            writeDiag("MCU v1.0 STATE_IGNORED: invalid or unsupported payload msgId=" + messageId);
+            writeDiag("MCU PASSIVE state unavailable msgId=" + messageId);
             return;
         }
-        McuCloseController.Decision decision = mcuCloseController.observe(
-                SystemClock.elapsedRealtime(), received, autoCloseEnabled(), state);
-        writeDiag("MCU v1.0 STATE msgId=" + messageId + " great=" + state.great + " cnt=" + state.count +
-                " decision=" + decision + " display=" + displayStateName(currentDisplayState()));
-        if (decision != McuCloseController.Decision.STALE && decision != McuCloseController.Decision.DISABLED)
-            greetingRecovery.onMcuState(SystemClock.elapsedRealtime(), state.great == 0);
-        if (decision == McuCloseController.Decision.HIDDEN) {
-            writeDiag("MCU v1.0 REPORTED_HIDDEN afterCloseRequest=" + mcuVerificationPending +
-                    " visualConfirmation=false");
-            finishMcuVerification();
-            // Verify the Android window separately; an unavailable/OFF tree proves nothing.
-            kickWatchdog();
-        } else if (decision == McuCloseController.Decision.CLOSE) {
-            // SysUI's X removes its own view AND sends this same MCU message.
-            // Keep the Accessibility path for the Android view; this command targets the MCU copy.
-            acquireMcuWakeLock();
-            if (sendMcuCommand(McuGreetingProtocol.DISMISS, McuGreetingProtocol.dismissPayload(),
-                    "visible-state cnt=" + state.count + " attempt=" + mcuCloseController.attempts())) {
-                mcuVerificationPending = true;
-                mcuCloseSentElapsed = SystemClock.elapsedRealtime();
-                handler.removeCallbacks(verifyMcuQuery);
-                handler.removeCallbacks(verifyMcuTimeout);
-                handler.postDelayed(verifyMcuQuery, 1200);
-                handler.postDelayed(verifyMcuTimeout, 3500);
-            } else {
-                finishMcuVerification();
-            }
-            kickWatchdog();
-        } else if (decision == McuCloseController.Decision.DISABLED) {
-            finishMcuVerification();
-        }
-    }
-
-    private void acquireMcuWakeLock() {
-        try {
-            if (mcuWakeLock == null) {
-                PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-                mcuWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MorningSkip:McuClose");
-                mcuWakeLock.setReferenceCounted(false);
-            }
-            mcuWakeLock.acquire(4000);
-        } catch (Throwable t) { writeDiag("MCU v1.0 wake lock error " + throwableChain(t)); }
-    }
-
-    private void finishMcuVerification() {
-        mcuVerificationPending = false;
-        handler.removeCallbacks(verifyMcuQuery);
-        handler.removeCallbacks(verifyMcuTimeout);
-        if (mcuWakeLock != null && mcuWakeLock.isHeld()) mcuWakeLock.release();
+        if (SystemClock.elapsedRealtime() - received > 3000) return;
+        greetingRecovery.onMcuState(SystemClock.elapsedRealtime(), state.great == 0);
+        writeDiag("MCU PASSIVE great=" + state.great + " cnt=" + state.count +
+                " controllerCommands=false visualConfirmation=false");
+        kickWatchdog();
     }
 
     private synchronized void unregisterMcuBridge() {

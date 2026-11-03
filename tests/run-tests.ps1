@@ -10,4 +10,11 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'MCU regression checks failed' }
     java -cp build/policy-tests io.github.jamatnat.morningskip.GreetingRecoveryTest
     if ($LASTEXITCODE -ne 0) { throw 'UI/MCU recovery checks failed' }
+    java -m jdk.compiler/com.sun.tools.javac.Main --release 8 -d build/policy-tests app/src/main/java/io/github/jamatnat/morningskip/NativeReadyGate.java tests/NativeReadyTest.java
+    if ($LASTEXITCODE -ne 0) { throw 'Native readiness compilation failed' }
+    java -cp build/policy-tests io.github.jamatnat.morningskip.NativeReadyTest
+    if ($LASTEXITCODE -ne 0) { throw 'Native readiness checks failed' }
+    if (Select-String -Path app/src/main/java/io/github/jamatnat/morningskip/SysUiProbeService.java -Pattern 'sendMessageToMcu|sendMcuCommand|queryMcuGreeting|ProcessBuilder|Runtime.getRuntime') {
+        throw 'Native-only service contains an external close/restart path'
+    }
 } finally { Pop-Location }

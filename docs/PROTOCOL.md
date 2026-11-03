@@ -1,5 +1,9 @@
 # OnePlus greeting protocol notes
 
+On the native-UI-only development branch these vendor messages are observed passively.
+The service sends neither queries nor dismissals; the mappings below describe the protocol,
+not active commands in this branch. No firmware-fix claim or new release is made.
+
 These notes describe the system app version inspected during development, not a stable public API. Vendor APKs and decompiled vendor source are not included.
 
 The app uses a reflected vendor `McuManager` interface and message class **10**:

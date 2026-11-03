@@ -109,4 +109,4 @@ Pure Java policy checks need a JDK, but no watch or Android SDK:
 sh tests/run-tests.sh
 ```
 
-The suite covers 144 assertions/checks for UI dismissal, controller decoding/closing, and recovery limits. See [protocol notes](PROTOCOL.md) for the vendor message mapping.
+The suite covers 162 assertions/checks for UI dismissal, controller decoding/closing, and recovery limits. See [protocol notes](PROTOCOL.md) for the vendor message mapping.

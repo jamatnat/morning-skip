@@ -1,5 +1,9 @@
 # MorningSkip
 
+Development branch: native-UI-only dismissal under investigation. No new release.
+The service waits for a stable, interactive native close button and sends no controller
+query or dismissal commands. Device validation is required before release.
+
 **[⬇ Download APK](https://github.com/jamatnat/morning-skip/releases/latest/download/MorningSkip.apk)** · [Installation & setup](#installation)
 
 Automatically dismiss the **“Good morning” greeting on OnePlus Watch 3**, including its afternoon and evening variants.
@@ -30,7 +34,7 @@ You can now leave the app. Set Auto-close to **OFF** to stop closing greetings, 
 
 ## How it works
 
-MorningSkip asks the watch controller to dismiss a detected greeting. If it remains visible, the app tries its Close button, with limited retries. It targets the OnePlus greeting, not other notifications or alarms.
+MorningSkip waits for a visible, unobscured native Close button to stabilize, then invokes it with limited retries. It does not send controller queries or dismissal commands. It targets the OnePlus greeting, not other notifications or alarms.
 
 The app relies on vendor-specific behavior, so firmware changes may affect it. It cannot guarantee recovery from a frozen system greeting.
 
