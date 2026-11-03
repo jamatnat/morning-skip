@@ -17,6 +17,16 @@ final class McuGreetingProtocol {
         State(int great, int count) { this.great = great; this.count = count; }
     }
 
+    static State decodeQueryReply(int classId, int messageId, int messageType, byte[] bytes,
+                                 long received, long requested) {
+        // SysUI parses an empty protobuf as great=0,cnt=0. Accept this only for a recent
+        // outstanding query, never for unsolicited/empty state events or null data.
+        if (classId == CLASS_ID && messageId == QUERY_REPLY && messageType == 0 &&
+                bytes != null && bytes.length == 0 && requested >= 0 && received >= requested &&
+                received - requested <= 3000) return new State(0, 0);
+        return decode(classId, messageId, messageType, bytes);
+    }
+
     // Small bounded protobuf reader: field 1 = int32 great, field 2 = int32 cnt.
     // An omitted great is zero: the observed hide message is just 10 34.
     static State decode(int classId, int messageId, int messageType, byte[] bytes) {

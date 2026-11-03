@@ -2,11 +2,18 @@ name: Android APK
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'app/**'
+      - 'tests/**'
+      - 'scripts/**'
+      - '.github/workflows/android-apk.yml'
   push:
     branches: [main]
     paths:
       - 'app/**'
       - 'tests/**'
+      - 'scripts/**'
       - 'gradle/**'
       - '*.gradle'
       - 'gradle.properties'
@@ -87,6 +94,7 @@ jobs:
           PYVERSION
           mkdir -p build/artifacts
           cp app/build/outputs/apk/debug/app-debug.apk build/artifacts/MorningSkip.apk
+          cp scripts/Start-Recovery.ps1 build/artifacts/Start-Recovery.ps1
           "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs build/artifacts/MorningSkip.apk \
             | tee "$RUNNER_TEMP/morningskip-signature.txt"
           expected=$(sha256sum "$RUNNER_TEMP/morningskip-cert.der" | cut -d ' ' -f 1)
@@ -97,7 +105,7 @@ jobs:
           fi
           echo "Signing key verified: $actual"
           cd build/artifacts
-          sha256sum MorningSkip.apk > SHA256SUMS.txt
+          sha256sum MorningSkip.apk Start-Recovery.ps1 > SHA256SUMS.txt
 
       - name: Upload APK
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -166,6 +174,24 @@ jobs:
           This version explicitly uses the repository signing key and checks the APK certificate before publishing.
           NOTES
           fi
-          gh release create "v$VERSION" MorningSkip.apk SHA256SUMS.txt \
+          if [[ "$VERSION" == '1.0.4' ]]; then
+            cat >> release-notes.md <<'NOTES'
+
+          **Stuck greeting recovery:** adds an optional, fixed-purpose ADB helper for the
+          fixed SysUI restart operation. Run
+          `powershell -ExecutionPolicy Bypass -File .\Start-Recovery.ps1` after installation
+          and after every watch restart/APK update. Auto-close must be ON. Recovery requires
+          two failed normal attempts, continuous visible UI evidence and a fresh foreground check.
+          The helper limits restart attempts to one per 10 minutes and three per 24 hours.
+
+          Empty replies to recent greeting queries are decoded using protobuf defaults;
+          controller-hidden reports still do not count as visual closure. Audio mode is now
+          recorded locally to investigate the sound/vibration question.
+
+          The helper is new and still needs on-watch validation. The firmware's underlying
+          freeze is not proven fixed; without the helper a wedged system window may require ADB.
+          NOTES
+          fi
+          gh release create "v$VERSION" MorningSkip.apk Start-Recovery.ps1 SHA256SUMS.txt \
             --target "$GITHUB_SHA" --title "MorningSkip $VERSION" \
             --notes-file release-notes.md

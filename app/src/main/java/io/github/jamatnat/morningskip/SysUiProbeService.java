@@ -11,6 +11,7 @@ import android.content.SharedPreferences;
 import android.graphics.Path;
 import android.graphics.Rect;
 import android.hardware.display.DisplayManager;
+import android.media.AudioManager;
 import android.os.Handler;
 import android.os.Build;
 import android.os.Looper;
@@ -33,6 +34,8 @@ import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class SysUiProbeService extends AccessibilityService {
     private static final String TAG = "MorningSkip";
@@ -67,10 +70,17 @@ public class SysUiProbeService extends AccessibilityService {
     static volatile boolean connectedForUi;
     private final McuCloseController mcuCloseController = new McuCloseController();
     private final GreetingRecoveryPolicy greetingRecovery = new GreetingRecoveryPolicy();
+    private final StuckGreetingPolicy stuckGreeting = new StuckGreetingPolicy();
+    private static final String LAST_SYSTEM_RECOVERY = "last_system_recovery_elapsed";
+    private boolean systemRecoveryPending, recoveryVerification;
+    private static final ExecutorService AUDIO_WORKER = Executors.newSingleThreadExecutor();
+    private boolean audioDiagPending;
+    private long recoveryClearSince = -1;
     private PowerManager.WakeLock mcuWakeLock;
     private boolean mcuVerificationPending;
     private long mcuCloseSentElapsed;
     private long lastMcuQueryElapsed = -1;
+    private long outstandingMcuQueryElapsed = -1;
     private final Runnable verifyMcuQuery = () -> {
         if (serviceRunning && autoCloseEnabled() && mcuVerificationPending &&
                 SystemClock.elapsedRealtime() - mcuCloseSentElapsed <= 3000) {
@@ -103,6 +113,7 @@ public class SysUiProbeService extends AccessibilityService {
                 releaseDismissWakeLock();
                 mcuCloseController.reset();
                 greetingRecovery.reset();
+                stuckGreeting.resetEvidence();
                 finishMcuVerification();
             } else {
                 initMcuBridge(true);
@@ -229,6 +240,9 @@ public class SysUiProbeService extends AccessibilityService {
         writeDiag("SERVICE CONNECTED v" + BuildConfig.VERSION_NAME + " code=" + BuildConfig.VERSION_CODE +
                 " sdk=" + Build.VERSION.SDK_INT + " device=" + Build.MANUFACTURER + " " + Build.MODEL);
         preferences = getSharedPreferences(MainActivity.PREFS, MODE_PRIVATE);
+        stuckGreeting.restoreCooldown(SystemClock.elapsedRealtime(),
+                preferences.getLong(LAST_SYSTEM_RECOVERY, -1));
+        logAudioState("service-start");
         preferences.registerOnSharedPreferenceChangeListener(preferenceListener);
         displayManager = (DisplayManager) getSystemService(Context.DISPLAY_SERVICE);
         if (displayManager != null) {
@@ -266,6 +280,7 @@ public class SysUiProbeService extends AccessibilityService {
                         handler.post(greetingWatchdog);
                     } else if (Intent.ACTION_SCREEN_OFF.equals(action)) {
                         writeDiag("SCREEN_OFF");
+                        stuckGreeting.resetEvidence();
                         kickWatchdog();
                     }
                 }
@@ -273,7 +288,8 @@ public class SysUiProbeService extends AccessibilityService {
             IntentFilter f = new IntentFilter();
             f.addAction(Intent.ACTION_SCREEN_ON);
             f.addAction(Intent.ACTION_SCREEN_OFF);
-            registerReceiver(screenReceiver, f, Context.RECEIVER_EXPORTED);
+            if (Build.VERSION.SDK_INT >= 33) registerReceiver(screenReceiver, f, Context.RECEIVER_EXPORTED);
+            else registerReceiver(screenReceiver, f);
         }
 
     }
@@ -362,6 +378,18 @@ public class SysUiProbeService extends AccessibilityService {
             }
             DismissController.Action action = dismissController.observe(nowElapsed, enabled,
                     snapshot.observation, snapshot.windowId);
+            boolean recover = stuckGreeting.observe(nowElapsed, enabled, isInteractiveNow(),
+                    snapshot.observation, snapshot.windowId, action == DismissController.Action.TIMED_OUT);
+            if (recover && !systemRecoveryPending) requestSystemRecovery(snapshot.windowId);
+            if (recoveryVerification) {
+                if (enabled && isInteractiveNow() && snapshot.observation == DismissController.Observation.CLEAR) {
+                    if (recoveryClearSince < 0) recoveryClearSince = nowElapsed;
+                    if (nowElapsed - recoveryClearSince >= DismissController.CLEAR_STABLE_MS) {
+                        writeDiag("RECOVERY v1.0.4 UI_CLEAR_CONFIRMED after SysUI restart");
+                        recoveryVerification = false;
+                    }
+                } else recoveryClearSince = -1;
+            }
             String summary = snapshot.observation + " " + snapshot.detail;
             if (!summary.equals(lastScanSummary) || nowElapsed - lastScanLogElapsed >= HEALTH_LOG_MS) {
                 lastScanSummary = summary;
@@ -370,6 +398,7 @@ public class SysUiProbeService extends AccessibilityService {
             }
             if (action == DismissController.Action.CLICK) {
                 acquireDismissWakeLock();
+                logAudioState("greeting-attempt");
                 writeDiag("A11Y v1.0 attempt windowId=" + snapshot.windowId +
                         " bounds=" + snapshot.bounds.toShortString() + " source=" + reason);
                 // Boolean return is logged but never treated as proof that the greeting vanished.
@@ -413,6 +442,51 @@ public class SysUiProbeService extends AccessibilityService {
             snapshot.recycle();
             if (!dismissController.isPending()) releaseDismissWakeLock();
         }
+    }
+
+    private void logAudioState(String reason) {
+        if (audioDiagPending) return;
+        audioDiagPending = true;
+        // Audio diagnostics must not block clicking/recovery if the audio service is unhealthy.
+        AUDIO_WORKER.execute(() -> {
+            try {
+                AudioManager audio = (AudioManager) getSystemService(AUDIO_SERVICE);
+                writeDiag("AUDIO reason=" + reason + " ringerMode=" + audio.getRingerMode() +
+                        " mode=" + audio.getMode() + " systemVolume=" + audio.getStreamVolume(AudioManager.STREAM_SYSTEM) +
+                        " soundEffects=" + android.provider.Settings.System.getInt(getContentResolver(),
+                        android.provider.Settings.System.SOUND_EFFECTS_ENABLED, -1));
+            } catch (Throwable t) { writeDiag("AUDIO unavailable " + throwableChain(t)); }
+            finally { handler.post(() -> audioDiagPending = false); }
+        });
+    }
+
+    private void requestSystemRecovery(final int windowId) {
+        systemRecoveryPending = true;
+        writeDiag("RECOVERY v1.0.4 HELPER_REQUEST windowId=" + windowId + " twoFailedAttempts=true");
+        logAudioState("before-recovery");
+        RecoveryClient.request(handler, () -> {
+            if (!serviceRunning || !autoCloseEnabled() || !isInteractiveNow() ||
+                    currentDisplayState() != Display.STATE_ON) return false;
+            GreetingSnapshot fresh = inspectGreeting();
+            try {
+                return fresh.canTap && fresh.windowId == windowId &&
+                        fresh.observation == DismissController.Observation.TARGET;
+            } finally { fresh.recycle(); }
+        }, result -> {
+            systemRecoveryPending = false;
+            if (!serviceRunning) return;
+            writeDiag("RECOVERY v1.0.4 HELPER_RESULT=" + result + " visualConfirmation=false");
+            long nowElapsed = SystemClock.elapsedRealtime();
+            if ("UNAVAILABLE".equals(result)) {
+                stuckGreeting.unavailable(nowElapsed);
+            } else if ("RESTART_SENT".equals(result) || "RESTART_FAILED".equals(result)) {
+                stuckGreeting.recovered(nowElapsed);
+                preferences.edit().putLong(LAST_SYSTEM_RECOVERY, nowElapsed).apply();
+                recoveryVerification = true;
+                recoveryClearSince = -1;
+            }
+            kickWatchdog();
+        });
     }
 
     private GreetingSnapshot inspectGreeting() {
@@ -606,6 +680,7 @@ public class SysUiProbeService extends AccessibilityService {
         serviceRunning = false;
         mcuCloseController.reset();
         greetingRecovery.reset();
+        stuckGreeting.resetEvidence();
         finishMcuVerification();
         writeDiag("SERVICE UNBOUND");
         return super.onUnbind(intent);
@@ -617,6 +692,7 @@ public class SysUiProbeService extends AccessibilityService {
         serviceRunning = false;
         mcuCloseController.reset();
         greetingRecovery.reset();
+        stuckGreeting.resetEvidence();
         finishMcuVerification();
         if (preferences != null) preferences.unregisterOnSharedPreferenceChangeListener(preferenceListener);
         if (displayManager != null) displayManager.unregisterDisplayListener(displayListener);
@@ -707,7 +783,10 @@ public class SysUiProbeService extends AccessibilityService {
         long elapsed = SystemClock.elapsedRealtime();
         if (lastMcuQueryElapsed >= 0 && elapsed - lastMcuQueryElapsed < 1000) return false;
         lastMcuQueryElapsed = elapsed;
-        return sendMcuCommand(McuGreetingProtocol.QUERY, McuGreetingProtocol.queryPayload(), reason);
+        outstandingMcuQueryElapsed = elapsed;
+        boolean sent = sendMcuCommand(McuGreetingProtocol.QUERY, McuGreetingProtocol.queryPayload(), reason);
+        if (!sent) outstandingMcuQueryElapsed = -1;
+        return sent;
     }
 
     private boolean sendMcuCommand(int messageId, byte[] payload, String reason) {
@@ -730,7 +809,9 @@ public class SysUiProbeService extends AccessibilityService {
 
     private void handleMcuGreeting(int classId, int messageId, int messageType, byte[] payload, long received) {
         if (!serviceRunning) return;
-        McuGreetingProtocol.State state = McuGreetingProtocol.decode(classId, messageId, messageType, payload);
+        McuGreetingProtocol.State state = McuGreetingProtocol.decodeQueryReply(classId, messageId,
+                messageType, payload, received, outstandingMcuQueryElapsed);
+        if (messageId == McuGreetingProtocol.QUERY_REPLY) outstandingMcuQueryElapsed = -1;
         if (state == null) {
             writeDiag("MCU v1.0 STATE_IGNORED: invalid or unsupported payload msgId=" + messageId);
             return;

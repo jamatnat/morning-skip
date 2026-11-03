@@ -43,6 +43,9 @@ public class MainActivity extends Activity {
     private Button autoButton, zipButton, clearButton;
     private ScrollView mainScroll;
     private TextView serviceStatus, accessibilityStatus, diagnosticsStatus;
+    private TextView recoveryStatus;
+    private long lastHelperCheck;
+    private boolean helperCheckPending;
     private final Runnable refreshStatus = new Runnable() {
         @Override public void run() {
             updateStatus();
@@ -67,6 +70,7 @@ public class MainActivity extends Activity {
         setup.setPadding(0, dp(6), 0, dp(6));
         serviceStatus = addText(box, "", 13);
         accessibilityStatus = addText(box, "", 13);
+        recoveryStatus = addText(box, "Recovery: checking…", 12);
         autoButton = addButton(box, "");
         autoButton.setOnClickListener(v -> toggleAutoClose());
         Button accessibility = addButton(box, "Open Accessibility");
@@ -87,6 +91,7 @@ public class MainActivity extends Activity {
         diagnosticsStatus.setVisibility(View.GONE);
         TextView hint = addText(box, "Closes the OnePlus greeting.\nYou can leave this screen.", 11);
         hint.setPadding(dp(12), dp(6), dp(12), 0);
+        addText(box, "Optional stuck-screen recovery:\nstart the ADB helper after each watch restart.\nSee the setup guide.", 11);
         mainScroll.addView(box);
         setContentView(mainScroll);
         mainScroll.setFocusable(true);
@@ -145,6 +150,20 @@ public class MainActivity extends Activity {
         accessibilityStatus.setTextColor(connected ? 0xff80e080 :
                 accessibilityEnabled ? 0xffffb060 : 0xffff7070);
         autoButton.setText("Good Morning Auto-close: " + (autoClose ? "ON" : "OFF"));
+        long elapsed = android.os.SystemClock.elapsedRealtime();
+        if (!helperCheckPending && elapsed - lastHelperCheck >= 5000) {
+            helperCheckPending = true;
+            lastHelperCheck = elapsed;
+            RecoveryClient.status(handler, response -> {
+                helperCheckPending = false;
+                if (isFinishing() || isDestroyed()) return;
+                boolean available = "AVAILABLE 1".equals(response);
+                boolean enabled = getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_MCU_AUTOCLOSE, false);
+                recoveryStatus.setText(available ? (enabled ? "Recovery: ready" : "Recovery: paused") :
+                        "Recovery: ADB setup needed");
+                recoveryStatus.setTextColor(available ? 0xff80e080 : 0xffffb060);
+            });
+        }
     }
 
     private void toggleAutoClose() {

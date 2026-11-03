@@ -7,8 +7,12 @@ Automatically dismiss the **“Good morning” greeting on OnePlus Watch 3**, in
 - Runs through an Accessibility service; no need to keep the app screen open.
 - One switch to turn automatic closing on or off.
 - Local diagnostics for troubleshooting. No root, screenshots, analytics or Internet access.
+- Optional ADB helper to restart a stuck OnePlus greeting's system UI after normal closing fails.
 
-Developed on OnePlus Watch 3. Other devices and firmware versions are untested; version 1.0 still needs on-watch validation.
+Developed on OnePlus Watch 3. Other devices and firmware versions are untested.
+
+Version **1.0.4** adds optional recovery for a stuck greeting. The new helper requires
+on-watch validation; it does not prove the firmware bug is fixed.
 
 ## Installation
 
@@ -33,6 +37,19 @@ You can now leave the app. Set Auto-close to **OFF** to stop closing greetings, 
 MorningSkip asks the watch controller to dismiss a detected greeting. If it remains visible, the app tries its Close button, with limited retries. It targets the OnePlus greeting, not other notifications or alarms.
 
 The app relies on vendor-specific behavior, so firmware changes may affect it. It cannot guarantee recovery from a frozen system greeting.
+
+## Recover a stuck greeting
+
+Normal Auto-close works without extra setup. To also recover a system greeting that
+ignores its Close button, install 1.0.4 and [start the optional recovery helper](docs/GUIDE.md#stuck-greeting-recovery).
+It can restart the OnePlus UI when normal closing fails.
+Run the setup again after each watch restart or APK update; the app shows **Recovery: ready**
+when the helper is reachable. Auto-close OFF pauses recovery as well.
+
+The app requires two failed normal closing attempts and at least 12 seconds of continuous,
+interactive greeting visibility. The helper checks the foreground window again before
+restarting only the OnePlus UI. It permits at most one attempt per 10 minutes and three
+per 24 hours. Without the helper, a wedged system UI can still require manual ADB recovery.
 
 ## Diagnostics
 

@@ -73,6 +73,53 @@ Enable Developer options and Wireless debugging on the watch. Keep the computer 
 
 Replace the placeholders with the values currently displayed on your watch. Ports can change. Pairing is normally needed only once; reconnect using the current connection port.
 
+## Stuck greeting recovery
+
+Install 1.0.4 using `adb install -r MorningSkip.apk` so settings and diagnostics are kept.
+Download **Start-Recovery.ps1** from the same build/release. With the watch connected,
+run it from the directory containing the script:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\Start-Recovery.ps1
+```
+
+For multiple connected devices add `-Device WATCH_IP:CONNECTION_PORT`. If ADB is not
+connected, first use `adb pair WATCH_IP:PAIRING_PORT` when pairing is needed, then
+`adb connect WATCH_IP:CONNECTION_PORT`; these ports are different. `adb devices` must
+show `device`, not `offline`, before running the script.
+
+Open MorningSkip and enable Auto-close. **Recovery: ready** means the helper is
+reachable, **Recovery: paused** means Auto-close is OFF, and **ADB setup needed** means
+ordinary Auto-close works but privileged recovery is unavailable. Run the script again
+after each watch restart or APK update. No PC connection should be needed while the
+helper remains alive; verify this on the watch before relying on it.
+
+To stop the helper:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\Start-Recovery.ps1 -Stop
+```
+
+The helper only restarts the OnePlus UI when the greeting is still focused after failed
+normal attempts. A recovery may briefly interrupt the watch UI; it does not reboot the
+watch. The helper is new and unverified on device; firmware policy may block IPC or
+terminate it. It does not fix the firmware's underlying cause. If the helper is unavailable,
+the manually verified recovery command is:
+
+```powershell
+adb shell am start -S -W --user 0 -n com.oplus.wearable.sysui/com.google.android.clockwork.sysui.mainui.activity.SysUiActivity
+```
+
+For a recovery report, include the app diagnostics and copy the helper's last window
+snapshot and log while still connected:
+
+```powershell
+adb pull /data/local/tmp/morningskip-recovery-last.txt .
+adb pull /data/local/tmp/morningskip-recovery.log .
+```
+
+The snapshot exists only after a helper restart attempt. Review local logs before sharing.
+
 ## Export diagnostics
 
 After the app shows **diagnostics.zip ready**, copy the file from a **debug build**. With **PowerShell 7.4 or newer**, in the directory where you want to save it:
@@ -109,4 +156,4 @@ Pure Java policy checks need a JDK, but no watch or Android SDK:
 sh tests/run-tests.sh
 ```
 
-The suite covers 144 assertions/checks for UI dismissal, controller decoding/closing, and recovery limits. See [protocol notes](PROTOCOL.md) for the vendor message mapping.
+The suite covers 468 assertions/checks for UI dismissal, controller decoding/closing, and recovery limits. See [protocol notes](PROTOCOL.md) for the vendor message mapping.
