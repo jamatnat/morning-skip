@@ -1,10 +1,10 @@
 # MorningSkip
 
-Development branch: native-UI-only dismissal under investigation. No new release.
+**Experimental 1.0.4-experimental.1:** native-UI-only dismissal for on-watch testing.
 The service waits for a stable, interactive native close button and sends no controller
-query or dismissal commands. Device validation is required before release.
+query or dismissal commands. Device validation is still required.
 
-**[⬇ Download APK](https://github.com/jamatnat/morning-skip/releases/latest/download/MorningSkip.apk)** · [Installation & setup](#installation)
+**[⬇ Download APK](https://github.com/jamatnat/morning-skip/releases/download/v1.0.4-experimental.1/MorningSkip.apk)** · [Installation & setup](#installation)
 
 Automatically dismiss the **“Good morning” greeting on OnePlus Watch 3**, including its afternoon and evening variants.
 
@@ -12,11 +12,11 @@ Automatically dismiss the **“Good morning” greeting on OnePlus Watch 3**, in
 - One switch to turn automatic closing on or off.
 - Local diagnostics for troubleshooting. No root, screenshots, analytics or Internet access.
 
-Developed on OnePlus Watch 3. Other devices and firmware versions are untested; version 1.0 still needs on-watch validation.
+Developed on OnePlus Watch 3. Other devices and firmware versions are untested; this experimental build still needs on-watch validation.
 
 ## Installation
 
-[Download MorningSkip.apk](https://github.com/jamatnat/morning-skip/releases/latest/download/MorningSkip.apk), then choose how to install it on your watch:
+[Download MorningSkip.apk](https://github.com/jamatnat/morning-skip/releases/download/v1.0.4-experimental.1/MorningSkip.apk), then choose how to install it on your watch:
 
 - **Android phone:** use [WearLoad](https://wearload.github.io/index_en.html). Follow its setup guide or [video tutorial](https://www.youtube.com/watch?v=cRqN0rvqA00), select `MorningSkip.apk` on your phone, and confirm installation on the watch.
 - **Computer:** follow the [ADB installation instructions](docs/GUIDE.md#install-over-wireless-adb).

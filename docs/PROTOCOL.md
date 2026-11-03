@@ -1,8 +1,8 @@
 # OnePlus greeting protocol notes
 
-On the native-UI-only development branch these vendor messages are observed passively.
+In experimental 1.0.4-experimental.1 these vendor messages are observed passively.
 The service sends neither queries nor dismissals; the mappings below describe the protocol,
-not active commands in this branch. No firmware-fix claim or new release is made.
+not active commands in this build. No verified firmware-fix claim is made.
 
 These notes describe the system app version inspected during development, not a stable public API. Vendor APKs and decompiled vendor source are not included.
 
@@ -18,8 +18,8 @@ The app uses a reflected vendor `McuManager` interface and message class **10**:
 
 A valid state with `great=1` means shown; `great=0` means hidden. Protobuf scalar defaults apply, but an empty/invalid payload is not accepted as proof of closure. The decoder and policy have regression cases in `tests/McuGreetingTest.java`.
 
-Sending a command, receiving a hidden-state report, and confirming a clear Android UI are distinct events. Controller-hidden state can coexist with a stale Android greeting. `GreetingRecoveryPolicy` tracks that distinction and limits recovery queries.
+Sending a command, receiving a hidden-state report, and confirming a clear Android UI are distinct events. Controller-hidden state can coexist with a stale Android greeting. `GreetingRecoveryPolicy` tracks that distinction for local diagnostics; this experimental build sends no recovery queries.
 
-UI fallback targets `com.oplus.wearable.sysui`, the `wake_up_root` greeting layout, and the `bt_negative` close control. It checks current visibility and overlapping windows before acting; unknown or blocked observations do not count as successful closure.
+Native UI dismissal targets `com.oplus.wearable.sysui`, the `wake_up_root` greeting layout, and the `bt_negative` close control. It checks current visibility and overlapping windows before acting; unknown or blocked observations do not count as successful closure.
 
 No alarm, sleep-tracking, or generic notification commands are sent. The implementation does not change the watch's system settings to disable the greeting at its source.
