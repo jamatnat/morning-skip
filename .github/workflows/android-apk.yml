@@ -2,8 +2,13 @@ name: Android APK
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'app/**'
+      - 'tests/**'
+      - '.github/workflows/android-apk.yml'
   push:
-    branches: [main]
+    branches: [main, fix/native-ui-dismissal]
     paths:
       - 'app/**'
       - 'tests/**'
@@ -71,7 +76,7 @@ jobs:
             -alias androiddebugkey -file "$RUNNER_TEMP/morningskip-cert.der"
 
       - name: Build APK
-        run: bash ./gradlew --no-daemon --console=plain assembleDebug
+        run: bash ./gradlew --no-daemon --console=plain assembleDebug lintDebug
 
       - name: Verify and package APK
         id: package
@@ -80,8 +85,12 @@ jobs:
           import json, os, re
           with open('app/build/outputs/apk/debug/output-metadata.json') as f:
               version = json.load(f)['elements'][0]['versionName']
-          if not re.fullmatch(r'[0-9]+(?:\.[0-9]+){1,2}', version):
-              raise SystemExit('Public releases require a numeric version such as 1.0 or 1.0.1')
+          stable = re.fullmatch(r'[0-9]+(?:\.[0-9]+){1,2}', version)
+          experimental = re.fullmatch(r'[0-9]+(?:\.[0-9]+){1,2}-experimental\.[0-9]+', version)
+          if not (stable or experimental):
+              raise SystemExit('Unsupported release version')
+          if os.environ['GITHUB_REF'] != 'refs/heads/main' and os.environ.get('GITHUB_EVENT_NAME') != 'pull_request' and not experimental:
+              raise SystemExit('A development branch may publish only an experimental prerelease')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write('version=' + version + '\n')
           PYVERSION
@@ -114,7 +123,7 @@ jobs:
   release:
     name: Publish version to Releases
     needs: build
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/fix/native-ui-dismissal'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -151,7 +160,7 @@ jobs:
           cat > release-notes.md <<'NOTES'
           Automatically dismiss the OnePlus Watch 3 greeting.
 
-          Download **MorningSkip.apk** below and install it on your watch using ADB.
+          Download **MorningSkip.apk** below and install it on your watch using your usual installer.
           Enable **MorningSkip** in Accessibility, then turn **Good Morning Auto-close ON**.
 
           This APK is a signed debug build, with local diagnostics export enabled.
@@ -166,6 +175,41 @@ jobs:
           This version explicitly uses the repository signing key and checks the APK certificate before publishing.
           NOTES
           fi
+          if [[ "$VERSION" == '1.0.4' ]]; then
+            cat >> release-notes.md <<'NOTES'
+
+          **Guarded hidden closing:** when the greeting has an attached, freshly accessible
+          native window while the screen is OFF, the app invokes its Close button before
+          screen-on. The native handler removes its own window and synchronizes the controller.
+          No independent early controller query/dismiss commands are sent by MorningSkip.
+
+          If the firmware does not expose a ready window while OFF, visible automatic closing
+          remains available after wake. Completely invisible closing depends on firmware readiness.
+          The rare freeze's exact cause and complete prevention have not been verified on-device.
+
+          Install this APK over the current version using your usual installer. No helper,
+          script, root, or additional ADB setup is required. Existing settings are preserved.
+          NOTES
+          fi
+          release_flags=()
+          if [[ "$VERSION" == *-experimental.* ]]; then
+            release_flags+=(--prerelease --latest=false)
+            cat > release-notes.md <<'NOTES'
+          Experimental native UI dismissal for OnePlus Watch 3.
+
+          - Removes direct controller query/dismiss commands from the service.
+          - Waits for an interactive, unobscured Close button to remain stable before acting.
+          - Uses native button closing with bounded retries and separate visual verification.
+
+          Download **MorningSkip.apk** and install it over your current version using your
+          usual installer (for example WearLoad). Keep Accessibility and Auto-close enabled.
+          No helper, script, root or additional ADB setup is required.
+
+          The APK uses the existing repository signing key. This is an experimental build;
+          prevention of the firmware freeze still requires on-watch testing. The greeting
+          may briefly appear before the app closes it. This does not replace the stable release.
+          NOTES
+          fi
           gh release create "v$VERSION" MorningSkip.apk SHA256SUMS.txt \
             --target "$GITHUB_SHA" --title "MorningSkip $VERSION" \
-            --notes-file release-notes.md
+            --notes-file release-notes.md "${release_flags[@]}"

@@ -1,5 +1,10 @@
 # MorningSkip
 
+Version **1.0.4** closes a ready native greeting while the screen is OFF when firmware
+exposes it. The service requires a fresh attached greeting tree; it never sends an
+independent early controller dismissal. If OFF-screen readiness is unavailable, the
+native visible-button fallback closes the greeting after wake.
+
 **[⬇ Download APK](https://github.com/jamatnat/morning-skip/releases/latest/download/MorningSkip.apk)** · [Installation & setup](#installation)
 
 Automatically dismiss the **“Good morning” greeting on OnePlus Watch 3**, including its afternoon and evening variants.
@@ -8,7 +13,7 @@ Automatically dismiss the **“Good morning” greeting on OnePlus Watch 3**, in
 - One switch to turn automatic closing on or off.
 - Local diagnostics for troubleshooting. No root, screenshots, analytics or Internet access.
 
-Developed on OnePlus Watch 3. Other devices and firmware versions are untested; version 1.0 still needs on-watch validation.
+Developed on OnePlus Watch 3. Other devices and firmware versions are untested; complete prevention of the rare firmware freeze has not been verified on-device.
 
 ## Installation
 
@@ -30,7 +35,7 @@ You can now leave the app. Set Auto-close to **OFF** to stop closing greetings, 
 
 ## How it works
 
-MorningSkip asks the watch controller to dismiss a detected greeting. If it remains visible, the app tries its Close button, with limited retries. It targets the OnePlus greeting, not other notifications or alarms.
+MorningSkip first waits for an attached native greeting window while the screen is OFF. It refreshes the known greeting layout and Close button before a bounded native click. The system handler removes its own window and synchronizes the controller. If no ready window can be accessed while OFF, the app waits for a visible, unobscured Close button after wake. It sends no independent controller query or dismissal commands. It targets the OnePlus greeting, not other notifications or alarms.
 
 The app relies on vendor-specific behavior, so firmware changes may affect it. It cannot guarantee recovery from a frozen system greeting.
 

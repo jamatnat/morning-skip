@@ -65,24 +65,24 @@ public class SysUiProbeService extends AccessibilityService {
     private String lastScanSummary = "";
     private volatile boolean serviceRunning;
     static volatile boolean connectedForUi;
-    private final McuCloseController mcuCloseController = new McuCloseController();
+    private final NativeReadyGate nativeReady = new NativeReadyGate();
+    private final HiddenClosePolicy hiddenClose = new HiddenClosePolicy();
+    private PowerManager.WakeLock hiddenWakeLock;
+    private AccessibilityNodeInfo hiddenSourceRoot;
+    private boolean hiddenArmed;
+    private String hiddenLastDetail = "";
+    private final Runnable hiddenProbe = new Runnable() {
+        @Override public void run() {
+            if (!serviceRunning || !autoCloseEnabled() || currentDisplayState() != Display.STATE_OFF ||
+                    isInteractiveNow() || !hiddenClose.active(SystemClock.elapsedRealtime())) {
+                finishHiddenClose("probe-ended; visualConfirmation=false");
+                return;
+            }
+            tryHiddenClose("readiness-probe");
+            if (hiddenArmed) handler.postDelayed(this, 100);
+        }
+    };
     private final GreetingRecoveryPolicy greetingRecovery = new GreetingRecoveryPolicy();
-    private PowerManager.WakeLock mcuWakeLock;
-    private boolean mcuVerificationPending;
-    private long mcuCloseSentElapsed;
-    private long lastMcuQueryElapsed = -1;
-    private final Runnable verifyMcuQuery = () -> {
-        if (serviceRunning && autoCloseEnabled() && mcuVerificationPending &&
-                SystemClock.elapsedRealtime() - mcuCloseSentElapsed <= 3000) {
-            queryMcuGreeting("verify-close");
-        }
-    };
-    private final Runnable verifyMcuTimeout = () -> {
-        if (mcuVerificationPending) {
-            writeDiag("MCU v1.0 CLOSE_UNVERIFIED: no hidden-state report; send is not proof of closure");
-        }
-        finishMcuVerification();
-    };
     private DisplayManager displayManager;
     private PowerManager.WakeLock dismissWakeLock;
     private SharedPreferences preferences;
@@ -101,11 +101,11 @@ public class SysUiProbeService extends AccessibilityService {
                 dismissController.observe(SystemClock.elapsedRealtime(), false,
                         DismissController.Observation.UNKNOWN, -1);
                 releaseDismissWakeLock();
-                mcuCloseController.reset();
+                nativeReady.reset();
+                finishHiddenClose("disabled");
                 greetingRecovery.reset();
-                finishMcuVerification();
             } else {
-                initMcuBridge(true);
+                initMcuBridge();
             }
             writeDiag("A11Y v1.0 autoClose=" + autoCloseEnabled());
             kickWatchdog();
@@ -246,7 +246,8 @@ public class SysUiProbeService extends AccessibilityService {
 
         registerReceivers();
         connectedForUi = true;
-        initMcuBridge(autoCloseEnabled());
+        initMcuBridge();
+        writeDiag("CLOSE_MODE=guarded-hidden-native directControllerCommands=false");
         handler.removeCallbacks(greetingWatchdog);
         handler.post(greetingWatchdog);
         writeDiag("A11Y v1.0 watchdog started onMs=" + WATCHDOG_ON_MS + " dozeMs=" + WATCHDOG_DOZE_MS +
@@ -262,10 +263,12 @@ public class SysUiProbeService extends AccessibilityService {
                     String action = intent.getAction();
                     if (Intent.ACTION_SCREEN_ON.equals(action)) {
                         writeDiag("SCREEN_ON");
+                        finishHiddenClose("screen-on; visible fallback");
                         handler.removeCallbacks(greetingWatchdog);
                         handler.post(greetingWatchdog);
                     } else if (Intent.ACTION_SCREEN_OFF.equals(action)) {
                         writeDiag("SCREEN_OFF");
+                        nativeReady.reset();
                         kickWatchdog();
                     }
                 }
@@ -273,7 +276,8 @@ public class SysUiProbeService extends AccessibilityService {
             IntentFilter f = new IntentFilter();
             f.addAction(Intent.ACTION_SCREEN_ON);
             f.addAction(Intent.ACTION_SCREEN_OFF);
-            registerReceiver(screenReceiver, f, Context.RECEIVER_EXPORTED);
+            if (Build.VERSION.SDK_INT >= 33) registerReceiver(screenReceiver, f, Context.RECEIVER_EXPORTED);
+            else registerReceiver(screenReceiver, f);
         }
 
     }
@@ -297,6 +301,14 @@ public class SysUiProbeService extends AccessibilityService {
         // All sources feed the same bounded attempt; events cannot schedule duplicate taps.
         if (getSharedPreferences(MainActivity.PREFS, MODE_PRIVATE)
                 .getBoolean(MainActivity.KEY_MCU_AUTOCLOSE, false)) {
+            if (currentDisplayState() == Display.STATE_OFF && !isInteractiveNow()) {
+                if (event.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+                        eventLooksLikeGoodMorning(event)) armHiddenClose("greeting-event");
+                if (hiddenArmed) {
+                    rememberHiddenSource(event);
+                    tryHiddenClose("sysui-event");
+                }
+            }
             maybeDismissVisibleGreeting("sysui-event");
         }
 
@@ -343,6 +355,150 @@ public class SysUiProbeService extends AccessibilityService {
         void recycle() { if (close != null) { close.recycle(); close = null; } }
     }
 
+    private void armHiddenClose(String reason) {
+        if (!serviceRunning || !autoCloseEnabled() || currentDisplayState() != Display.STATE_OFF ||
+                isInteractiveNow() || !hiddenClose.arm(SystemClock.elapsedRealtime())) return;
+        hiddenArmed = true;
+        hiddenLastDetail = "";
+        try {
+            PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+            if (hiddenWakeLock == null && pm != null) {
+                hiddenWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, getPackageName() + ":hidden-ready");
+                hiddenWakeLock.setReferenceCounted(false);
+            }
+            if (hiddenWakeLock != null) hiddenWakeLock.acquire(HiddenClosePolicy.WINDOW_MS + 1000);
+        } catch (Throwable t) { writeDiag("HIDDEN wake lock unavailable " + throwableChain(t)); }
+        writeDiag("HIDDEN WAIT reason=" + reason + " maxMs=" + HiddenClosePolicy.WINDOW_MS +
+                " directControllerCommands=false");
+        handler.removeCallbacks(hiddenProbe);
+        handler.post(hiddenProbe);
+    }
+
+    private void finishHiddenClose(String reason) {
+        handler.removeCallbacks(hiddenProbe);
+        hiddenClose.cancel();
+        if (hiddenSourceRoot != null) { hiddenSourceRoot.recycle(); hiddenSourceRoot = null; }
+        try { if (hiddenWakeLock != null && hiddenWakeLock.isHeld()) hiddenWakeLock.release(); }
+        catch (Throwable ignored) { }
+        if (hiddenArmed) writeDiag("HIDDEN END reason=" + reason + " attempts=" + hiddenClose.attempts());
+        hiddenArmed = false;
+    }
+
+    private void rememberHiddenSource(AccessibilityEvent event) {
+        AccessibilityNodeInfo root = null;
+        try {
+            if (Build.VERSION.SDK_INT >= 33) clearCache();
+            root = event.getSource();
+            for (int depth = 0; root != null && depth < 20; depth++) {
+                AccessibilityNodeInfo parent = root.getParent();
+                if (parent == null) break;
+                root.recycle(); root = parent;
+            }
+            if (root != null && root.refresh() && TARGET_PACKAGE.contentEquals(safe(root.getPackageName())) &&
+                    hasGreetingLayout(root)) {
+                if (hiddenSourceRoot != null) hiddenSourceRoot.recycle();
+                hiddenSourceRoot = root;
+                root = null;
+            }
+        } catch (Throwable t) { writeDiag("HIDDEN source unavailable " + throwableChain(t)); }
+        finally { if (root != null) root.recycle(); }
+    }
+
+    private void tryHiddenClose(String reason) {
+        if (!hiddenArmed) return;
+        GreetingSnapshot snapshot = null;
+        try {
+            snapshot = inspectHiddenGreeting();
+            long elapsed = SystemClock.elapsedRealtime();
+            boolean off = currentDisplayState() == Display.STATE_OFF;
+            boolean live = snapshot.close != null;
+            String detail = live ? "live-window=" + snapshot.windowId : "no-live-greeting";
+            if (!detail.equals(hiddenLastDetail)) { writeDiag("HIDDEN readiness=" + detail); hiddenLastDetail = detail; }
+            boolean click = hiddenClose.observe(elapsed, serviceRunning && autoCloseEnabled(), off,
+                    isInteractiveNow(), live, snapshot.windowId, snapshot.bounds.toShortString());
+            if (click && snapshot.close.refresh() && snapshot.close.isEnabled() &&
+                    snapshot.close.isClickable() && snapshot.close.getWindowId() == snapshot.windowId &&
+                    (TARGET_PACKAGE + ":id/bt_negative").equals(snapshot.close.getViewIdResourceName()) &&
+                    currentDisplayState() == Display.STATE_OFF && !isInteractiveNow()) {
+                Rect freshBounds = new Rect(); snapshot.close.getBoundsInScreen(freshBounds);
+                if (freshBounds.equals(snapshot.bounds)) {
+                    // The vendor callback removes its attached Android view, then sends its own MCU
+                    // dismissal. Never send an independent early MCU close or an OFF-screen gesture.
+                    boolean accepted = snapshot.close.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                    writeDiag("HIDDEN NATIVE_CLICK windowId=" + snapshot.windowId + " accepted=" + accepted +
+                            " attempt=" + hiddenClose.attempts() + " source=" + reason +
+                            " visualConfirmation=false");
+                }
+            }
+        } catch (Throwable t) { writeDiag("HIDDEN scan error " + throwableChain(t)); }
+        finally { if (snapshot != null) snapshot.recycle(); }
+    }
+
+    private GreetingSnapshot inspectHiddenGreeting() {
+        if (Build.VERSION.SDK_INT >= 33) clearCache();
+        if (hiddenSourceRoot != null) {
+            GreetingSnapshot result = hiddenTargetFromRoot(hiddenSourceRoot);
+            if (result.close != null) return result;
+            result.recycle();
+        }
+        List<AccessibilityWindowInfo> windows = getWindows();
+        try {
+            if (windows != null) {
+                int inspected = 0;
+                for (AccessibilityWindowInfo window : windows) {
+                    if (window == null || inspected++ >= 3) break;
+                    AccessibilityNodeInfo root = window.getRoot();
+                    if (root == null) continue;
+                    try {
+                        GreetingSnapshot result = hiddenTargetFromRoot(root);
+                        if (result.close != null) return result;
+                        result.recycle();
+                    } finally { root.recycle(); }
+                }
+            }
+        } finally {
+            if (windows != null) for (AccessibilityWindowInfo window : windows)
+                if (window != null) window.recycle();
+        }
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+        if (root != null) try { return hiddenTargetFromRoot(root); }
+        finally { root.recycle(); }
+        return new GreetingSnapshot();
+    }
+
+    private boolean hasGreetingLayout(AccessibilityNodeInfo root) {
+        String id = TARGET_PACKAGE + ":id/wake_up_root";
+        if (id.equals(root.getViewIdResourceName())) return true;
+        List<AccessibilityNodeInfo> layouts = root.findAccessibilityNodeInfosByViewId(id);
+        if (layouts == null) return false;
+        try { return !layouts.isEmpty(); }
+        finally { for (AccessibilityNodeInfo node : layouts) if (node != null) node.recycle(); }
+    }
+
+    private GreetingSnapshot hiddenTargetFromRoot(AccessibilityNodeInfo root) {
+        GreetingSnapshot result = new GreetingSnapshot();
+        // A refreshed framework tree is required, not cached text or an MCU "shown" report.
+        // Android services a node query/action only while the target view is attached/shown.
+        if (!root.refresh() || !TARGET_PACKAGE.contentEquals(safe(root.getPackageName())) ||
+                root.getWindowId() < 0 || !hasGreetingLayout(root)) return result;
+        List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByViewId(TARGET_PACKAGE + ":id/bt_negative");
+        if (nodes == null) return result;
+        try {
+            for (AccessibilityNodeInfo node : nodes) {
+                if (node == null || !node.refresh() || !node.isEnabled() || !node.isClickable() ||
+                        node.getWindowId() != root.getWindowId() ||
+                        !TARGET_PACKAGE.contentEquals(safe(node.getPackageName()))) continue;
+                Rect bounds = new Rect(); node.getBoundsInScreen(bounds);
+                if (bounds.isEmpty()) continue;
+                result.close = AccessibilityNodeInfo.obtain(node);
+                result.bounds.set(bounds); result.windowId = node.getWindowId();
+                result.detail = "attached-greeting";
+                return result;
+            }
+        } finally { for (AccessibilityNodeInfo node : nodes) if (node != null) node.recycle(); }
+        return result;
+    }
+
     private void maybeDismissVisibleGreeting(String reason) {
         if (!serviceRunning) return;
         long nowElapsed = SystemClock.elapsedRealtime();
@@ -360,8 +516,16 @@ public class SysUiProbeService extends AccessibilityService {
                         greetingRecovery.hiddenAgeMs(nowElapsed) + " windowId=" + snapshot.windowId +
                         " detail=" + snapshot.detail);
             }
+            boolean ready = nativeReady.observe(nowElapsed,
+                    enabled && isInteractiveNow() && currentDisplayState() == Display.STATE_ON && snapshot.canTap,
+                    snapshot.observation == DismissController.Observation.TARGET,
+                    snapshot.windowId, snapshot.bounds.toShortString());
+            DismissController.Observation observation = snapshot.observation;
+            if (!isInteractiveNow() || currentDisplayState() != Display.STATE_ON ||
+                    (observation == DismissController.Observation.TARGET && !ready))
+                observation = DismissController.Observation.UNKNOWN;
             DismissController.Action action = dismissController.observe(nowElapsed, enabled,
-                    snapshot.observation, snapshot.windowId);
+                    observation, snapshot.windowId);
             String summary = snapshot.observation + " " + snapshot.detail;
             if (!summary.equals(lastScanSummary) || nowElapsed - lastScanLogElapsed >= HEALTH_LOG_MS) {
                 lastScanSummary = summary;
@@ -395,13 +559,6 @@ public class SysUiProbeService extends AccessibilityService {
             } else if (action == DismissController.Action.TIMED_OUT) {
                 writeDiag("A11Y v1.0 CLOSE_UNVERIFIED: " + summary + " retryAfterMs=" +
                         dismissController.retryDelayMs());
-                // Only a fresh visible target permits recovery. OFF/occluded/missing trees do not.
-                if (greetingRecovery.allowQuery(nowElapsed, enabled, snapshot.observation,
-                        snapshot.windowId, true)) {
-                    boolean sent = queryMcuGreeting("ui-close-timeout windowId=" + snapshot.windowId);
-                    writeDiag("RECOVERY v1.0 QUERY windowId=" + snapshot.windowId + " attempt=" +
-                            greetingRecovery.queries() + " callAccepted=" + sent);
-                }
                 releaseDismissWakeLock();
             } else if (action == DismissController.Action.CANCELLED) {
                 writeDiag("A11Y v1.0 attempt cancelled: auto-close disabled");
@@ -604,9 +761,9 @@ public class SysUiProbeService extends AccessibilityService {
     public boolean onUnbind(Intent intent) {
         connectedForUi = false;
         serviceRunning = false;
-        mcuCloseController.reset();
+        nativeReady.reset();
+        finishHiddenClose("service-unbound");
         greetingRecovery.reset();
-        finishMcuVerification();
         writeDiag("SERVICE UNBOUND");
         return super.onUnbind(intent);
     }
@@ -615,9 +772,9 @@ public class SysUiProbeService extends AccessibilityService {
     public void onDestroy() {
         connectedForUi = false;
         serviceRunning = false;
-        mcuCloseController.reset();
+        nativeReady.reset();
+        finishHiddenClose("service-destroyed");
         greetingRecovery.reset();
-        finishMcuVerification();
         if (preferences != null) preferences.unregisterOnSharedPreferenceChangeListener(preferenceListener);
         if (displayManager != null) displayManager.unregisterDisplayListener(displayListener);
         try { if (screenReceiver != null) unregisterReceiver(screenReceiver); } catch (Throwable ignored) {}
@@ -627,7 +784,7 @@ public class SysUiProbeService extends AccessibilityService {
         super.onDestroy();
     }
 
-    private synchronized void initMcuBridge(boolean sendQuery) {
+    private synchronized void initMcuBridge() {
         try {
             if (mcuManager == null || mcuListener == null || !mcuRegistered) {
                 writeDiag("MCU INIT begin");
@@ -668,7 +825,6 @@ public class SysUiProbeService extends AccessibilityService {
                 writeDiag("MCU REGISTER already active");
             }
 
-            if (sendQuery) queryMcuGreeting("startup-or-manual-check");
         } catch (Throwable t) {
             writeDiag("MCU ERROR " + throwableChain(t));
         }
@@ -702,88 +858,20 @@ public class SysUiProbeService extends AccessibilityService {
         }
     }
 
-    private boolean queryMcuGreeting(String reason) {
-        if (!serviceRunning || !mcuRegistered) return false;
-        long elapsed = SystemClock.elapsedRealtime();
-        if (lastMcuQueryElapsed >= 0 && elapsed - lastMcuQueryElapsed < 1000) return false;
-        lastMcuQueryElapsed = elapsed;
-        return sendMcuCommand(McuGreetingProtocol.QUERY, McuGreetingProtocol.queryPayload(), reason);
-    }
-
-    private boolean sendMcuCommand(int messageId, byte[] payload, String reason) {
-        if (!serviceRunning || !mcuRegistered) return false;
-        try {
-            Method send = mcuManagerClass.getDeclaredMethod(
-                    "sendMessageToMcu", int.class, int.class, byte[].class);
-            send.setAccessible(true);
-            Object result = send.invoke(mcuManager, McuGreetingProtocol.CLASS_ID, messageId, payload);
-            boolean accepted = !(result instanceof Boolean) || (Boolean) result;
-            writeDiag("MCU v1.0 SEND classId=10 msgId=" + messageId + " hex=" + toHex(payload, 32) +
-                    " apiResult=" + result + " callAccepted=" + accepted +
-                    " closureConfirmed=false reason=" + reason);
-            return accepted;
-        } catch (Throwable t) {
-            writeDiag("MCU v1.0 SEND_ERROR msgId=" + messageId + " " + throwableChain(t));
-            return false;
-        }
-    }
-
     private void handleMcuGreeting(int classId, int messageId, int messageType, byte[] payload, long received) {
         if (!serviceRunning) return;
         McuGreetingProtocol.State state = McuGreetingProtocol.decode(classId, messageId, messageType, payload);
         if (state == null) {
-            writeDiag("MCU v1.0 STATE_IGNORED: invalid or unsupported payload msgId=" + messageId);
+            writeDiag("MCU PASSIVE state unavailable msgId=" + messageId);
             return;
         }
-        McuCloseController.Decision decision = mcuCloseController.observe(
-                SystemClock.elapsedRealtime(), received, autoCloseEnabled(), state);
-        writeDiag("MCU v1.0 STATE msgId=" + messageId + " great=" + state.great + " cnt=" + state.count +
-                " decision=" + decision + " display=" + displayStateName(currentDisplayState()));
-        if (decision != McuCloseController.Decision.STALE && decision != McuCloseController.Decision.DISABLED)
-            greetingRecovery.onMcuState(SystemClock.elapsedRealtime(), state.great == 0);
-        if (decision == McuCloseController.Decision.HIDDEN) {
-            writeDiag("MCU v1.0 REPORTED_HIDDEN afterCloseRequest=" + mcuVerificationPending +
-                    " visualConfirmation=false");
-            finishMcuVerification();
-            // Verify the Android window separately; an unavailable/OFF tree proves nothing.
-            kickWatchdog();
-        } else if (decision == McuCloseController.Decision.CLOSE) {
-            // SysUI's X removes its own view AND sends this same MCU message.
-            // Keep the Accessibility path for the Android view; this command targets the MCU copy.
-            acquireMcuWakeLock();
-            if (sendMcuCommand(McuGreetingProtocol.DISMISS, McuGreetingProtocol.dismissPayload(),
-                    "visible-state cnt=" + state.count + " attempt=" + mcuCloseController.attempts())) {
-                mcuVerificationPending = true;
-                mcuCloseSentElapsed = SystemClock.elapsedRealtime();
-                handler.removeCallbacks(verifyMcuQuery);
-                handler.removeCallbacks(verifyMcuTimeout);
-                handler.postDelayed(verifyMcuQuery, 1200);
-                handler.postDelayed(verifyMcuTimeout, 3500);
-            } else {
-                finishMcuVerification();
-            }
-            kickWatchdog();
-        } else if (decision == McuCloseController.Decision.DISABLED) {
-            finishMcuVerification();
-        }
-    }
-
-    private void acquireMcuWakeLock() {
-        try {
-            if (mcuWakeLock == null) {
-                PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-                mcuWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MorningSkip:McuClose");
-                mcuWakeLock.setReferenceCounted(false);
-            }
-            mcuWakeLock.acquire(4000);
-        } catch (Throwable t) { writeDiag("MCU v1.0 wake lock error " + throwableChain(t)); }
-    }
-
-    private void finishMcuVerification() {
-        mcuVerificationPending = false;
-        handler.removeCallbacks(verifyMcuQuery);
-        handler.removeCallbacks(verifyMcuTimeout);
-        if (mcuWakeLock != null && mcuWakeLock.isHeld()) mcuWakeLock.release();
+        if (SystemClock.elapsedRealtime() - received > 3000) return;
+        greetingRecovery.onMcuState(SystemClock.elapsedRealtime(), state.great == 0);
+        writeDiag("MCU PASSIVE great=" + state.great + " cnt=" + state.count +
+                " controllerCommands=false visualConfirmation=false");
+        if (state.great == 1) armHiddenClose("controller-visible");
+        else finishHiddenClose("controller-hidden; visualConfirmation=false");
+        kickWatchdog();
     }
 
     private synchronized void unregisterMcuBridge() {
