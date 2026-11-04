@@ -109,4 +109,19 @@ Pure Java policy checks need a JDK, but no watch or Android SDK:
 sh tests/run-tests.sh
 ```
 
-The suite covers 162 assertions/checks for UI dismissal, controller decoding/closing, and recovery limits. See [protocol notes](PROTOCOL.md) for the vendor message mapping.
+The suite covers 194 assertions/checks for UI dismissal, controller decoding/closing, and recovery limits. See [protocol notes](PROTOCOL.md) for the vendor message mapping.
+
+## Version 1.0.4
+
+Install the APK normally over the current version. The signing identity and accessibility
+service identity are unchanged. Keep Accessibility and Auto-close enabled. No helper or
+extra setup is required after reboot.
+
+The service first attempts guarded native closing while the screen is OFF, only when a
+fresh attached greeting tree is accessible. It uses a short bounded readiness probe, not
+a blind controller command or arbitrary timer. If the firmware does not expose the tree,
+the existing visible closing path remains available; a brief greeting can still appear.
+
+Local diagnostics distinguish `HIDDEN WAIT`, live readiness, `HIDDEN NATIVE_CLICK` and the
+reason a probe ended. A command acceptance or controller-hidden report is not logged as
+visual success. Complete prevention of the rare firmware freeze is not yet verified.

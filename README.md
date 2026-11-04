@@ -1,10 +1,11 @@
 # MorningSkip
 
-**Experimental 1.0.4-experimental.1:** native-UI-only dismissal for on-watch testing.
-The service waits for a stable, interactive native close button and sends no controller
-query or dismissal commands. Device validation is still required.
+Version **1.0.4** closes a ready native greeting while the screen is OFF when firmware
+exposes it. The service requires a fresh attached greeting tree; it never sends an
+independent early controller dismissal. If OFF-screen readiness is unavailable, the
+native visible-button fallback closes the greeting after wake.
 
-**[⬇ Download APK](https://github.com/jamatnat/morning-skip/releases/download/v1.0.4-experimental.1/MorningSkip.apk)** · [Installation & setup](#installation)
+**[⬇ Download APK](https://github.com/jamatnat/morning-skip/releases/latest/download/MorningSkip.apk)** · [Installation & setup](#installation)
 
 Automatically dismiss the **“Good morning” greeting on OnePlus Watch 3**, including its afternoon and evening variants.
 
@@ -12,11 +13,11 @@ Automatically dismiss the **“Good morning” greeting on OnePlus Watch 3**, in
 - One switch to turn automatic closing on or off.
 - Local diagnostics for troubleshooting. No root, screenshots, analytics or Internet access.
 
-Developed on OnePlus Watch 3. Other devices and firmware versions are untested; this experimental build still needs on-watch validation.
+Developed on OnePlus Watch 3. Other devices and firmware versions are untested; complete prevention of the rare firmware freeze has not been verified on-device.
 
 ## Installation
 
-[Download MorningSkip.apk](https://github.com/jamatnat/morning-skip/releases/download/v1.0.4-experimental.1/MorningSkip.apk), then choose how to install it on your watch:
+[Download MorningSkip.apk](https://github.com/jamatnat/morning-skip/releases/latest/download/MorningSkip.apk), then choose how to install it on your watch:
 
 - **Android phone:** use [WearLoad](https://wearload.github.io/index_en.html). Follow its setup guide or [video tutorial](https://www.youtube.com/watch?v=cRqN0rvqA00), select `MorningSkip.apk` on your phone, and confirm installation on the watch.
 - **Computer:** follow the [ADB installation instructions](docs/GUIDE.md#install-over-wireless-adb).
@@ -34,7 +35,7 @@ You can now leave the app. Set Auto-close to **OFF** to stop closing greetings, 
 
 ## How it works
 
-MorningSkip waits for a visible, unobscured native Close button to stabilize, then invokes it with limited retries. It does not send controller queries or dismissal commands. It targets the OnePlus greeting, not other notifications or alarms.
+MorningSkip first waits for an attached native greeting window while the screen is OFF. It refreshes the known greeting layout and Close button before a bounded native click. The system handler removes its own window and synchronizes the controller. If no ready window can be accessed while OFF, the app waits for a visible, unobscured Close button after wake. It sends no independent controller query or dismissal commands. It targets the OnePlus greeting, not other notifications or alarms.
 
 The app relies on vendor-specific behavior, so firmware changes may affect it. It cannot guarantee recovery from a frozen system greeting.
 
