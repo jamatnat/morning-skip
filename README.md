@@ -3,7 +3,8 @@
 This development branch contains an **unverified native-receiver candidate**. It sends a
 bounded, package-scoped broadcast to the greeting receiver registered during native window
 attachment. It does not require an OFF-screen accessibility tree. The regular download
-below still points to the published release; this candidate has not been released.
+below still points to the stable release. This candidate is available separately as a
+[1.0.5-experimental.1 prerelease](https://github.com/jamatnat/morning-skip/releases/tag/v1.0.5-experimental.1).
 
 **[⬇ Download APK](https://github.com/jamatnat/morning-skip/releases/latest/download/MorningSkip.apk)** · [Installation & setup](#installation)
 
