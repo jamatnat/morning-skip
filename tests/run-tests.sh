@@ -12,8 +12,8 @@ java -m jdk.compiler/com.sun.tools.javac.Main --release 8 -d build/policy-tests 
   app/src/main/java/io/github/jamatnat/morningskip/NativeReadyGate.java tests/NativeReadyTest.java
 java -cp build/policy-tests io.github.jamatnat.morningskip.NativeReadyTest
 java -m jdk.compiler/com.sun.tools.javac.Main --release 8 -d build/policy-tests \
-  app/src/main/java/io/github/jamatnat/morningskip/HiddenClosePolicy.java tests/HiddenCloseTest.java
-java -cp build/policy-tests io.github.jamatnat.morningskip.HiddenCloseTest
+  app/src/main/java/io/github/jamatnat/morningskip/NativeReceiverClosePolicy.java tests/NativeReceiverCloseTest.java
+java -cp build/policy-tests io.github.jamatnat.morningskip.NativeReceiverCloseTest
 # Keep the production service free from direct controller sends and shell recovery paths.
 if grep -nE 'sendMessageToMcu|sendMcuCommand|queryMcuGreeting|ProcessBuilder|Runtime.getRuntime' app/src/main/java/io/github/jamatnat/morningskip/SysUiProbeService.java; then
   echo 'FAIL: native-only service contains an external close/restart path' >&2

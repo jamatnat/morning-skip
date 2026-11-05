@@ -109,7 +109,7 @@ Pure Java policy checks need a JDK, but no watch or Android SDK:
 sh tests/run-tests.sh
 ```
 
-The suite covers 194 assertions/checks for UI dismissal, controller decoding/closing, and recovery limits. See [protocol notes](PROTOCOL.md) for the vendor message mapping.
+The suite covers 181 assertions/checks for UI dismissal, controller decoding/closing, and recovery limits. See [protocol notes](PROTOCOL.md) for the vendor message mapping.
 
 ## Version 1.0.4
 
@@ -125,3 +125,11 @@ the existing visible closing path remains available; a brief greeting can still 
 Local diagnostics distinguish `HIDDEN WAIT`, live readiness, `HIDDEN NATIVE_CLICK` and the
 reason a probe ended. A command acceptance or controller-hidden report is not logged as
 visual success. Complete prevention of the rare firmware freeze is not yet verified.
+
+## Native-receiver development candidate
+
+This branch identifies itself as 1.0.5-experimental.1 (version code 8) so a signed candidate
+can update 1.0.4 without uninstalling. It is not a published release or a verified freeze fix.
+Diagnostics distinguish `RECEIVER START`, `REQUEST`, `DENIED`, `ERROR` and `END`.
+A successful sendBroadcast return does not prove that any receiver handled the request.
+A denied request disables this path for the service instance and leaves native UI fallback.
