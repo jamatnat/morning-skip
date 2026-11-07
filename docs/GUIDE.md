@@ -111,25 +111,19 @@ sh tests/run-tests.sh
 
 The suite covers 181 assertions/checks for UI dismissal, controller decoding/closing, and recovery limits. See [protocol notes](PROTOCOL.md) for the vendor message mapping.
 
-## Version 1.0.4
+## Version 1.0.5
 
-Install the APK normally over the current version. The signing identity and accessibility
-service identity are unchanged. Keep Accessibility and Auto-close enabled. No helper or
-extra setup is required after reboot.
+This official release preserves the native-receiver implementation from
+1.0.5-experimental.1. Version code 9 and the existing signing key allow a normal update
+over both the experimental build and earlier releases, without uninstalling.
+Keep Accessibility and Auto-close enabled. No helper or extra setup is required.
 
-The service first attempts guarded native closing while the screen is OFF, only when a
-fresh attached greeting tree is accessible. It uses a short bounded readiness probe, not
-a blind controller command or arbitrary timer. If the firmware does not expose the tree,
-the existing visible closing path remains available; a brief greeting can still appear.
+The service requests closure through the greeting's native receiver, registered during
+window attachment. It does not require an OFF-screen accessibility tree. Requests are
+limited to three seconds, target only registered receivers inside the SysUI package,
+and do not turn on the screen. The native-button fallback remains available.
 
-Local diagnostics distinguish `HIDDEN WAIT`, live readiness, `HIDDEN NATIVE_CLICK` and the
-reason a probe ended. A command acceptance or controller-hidden report is not logged as
-visual success. Complete prevention of the rare firmware freeze is not yet verified.
-
-## Native-receiver development candidate
-
-This branch identifies itself as 1.0.5-experimental.1 (version code 8) so a signed candidate
-can update 1.0.4 without uninstalling. It is published only as an experimental prerelease and is not a verified freeze fix.
 Diagnostics distinguish `RECEIVER START`, `REQUEST`, `DENIED`, `ERROR` and `END`.
 A successful sendBroadcast return does not prove that any receiver handled the request.
 A denied request disables this path for the service instance and leaves native UI fallback.
+Long-term prevention of the rare firmware freeze is still being evaluated.

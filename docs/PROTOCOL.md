@@ -1,6 +1,6 @@
 # OnePlus greeting protocol notes
 
-In version 1.0.4 these vendor messages are observed passively.
+Since version 1.0.4 these vendor messages are observed passively.
 The service sends neither queries nor dismissals; the mappings below describe the protocol,
 not independent commands sent by this app. No verified firmware-fix claim is made.
 
@@ -51,7 +51,7 @@ This guards against the modelled early-close ordering; full prevention of the re
 rare freeze still requires on-watch evidence. No vendor APK or private device trace is
 included in this repository.
 
-## Attach-scoped native receiver candidate
+## Attach-scoped native receiver (1.0.5)
 
 The inspected SysUI APK registers `heytap.intent.action.UNDER_WATER_NAVI` in the greeting
 view's `onAttachedToWindow`, and unregisters the receiver on detach. Within that APK,
@@ -66,7 +66,7 @@ probe, sending the request does not depend on an OFF-screen accessibility tree.
 The 200 ms interval is a bounded redelivery interval for an absent receiver, not a claim
 that the view becomes ready after a fixed delay.
 
-The candidate sends foreground, registered-receiver-only broadcasts scoped to the SysUI
+Version 1.0.5 sends foreground, registered-receiver-only broadcasts scoped to the SysUI
 package, only in response to a greeting event/state. It holds a time-limited partial wake
 lock and does not switch the screen on. Controller-hidden state, disable and disconnect
 cancel pending attempts; duplicates cannot extend the three-second deadline. A denied
