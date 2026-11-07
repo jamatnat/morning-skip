@@ -66,20 +66,39 @@ public class SysUiProbeService extends AccessibilityService {
     private volatile boolean serviceRunning;
     static volatile boolean connectedForUi;
     private final NativeReadyGate nativeReady = new NativeReadyGate();
-    private final HiddenClosePolicy hiddenClose = new HiddenClosePolicy();
-    private PowerManager.WakeLock hiddenWakeLock;
-    private AccessibilityNodeInfo hiddenSourceRoot;
-    private boolean hiddenArmed;
-    private String hiddenLastDetail = "";
-    private final Runnable hiddenProbe = new Runnable() {
+    private static final String NATIVE_CLOSE_ACTION = "heytap.intent.action.UNDER_WATER_NAVI";
+    private final NativeReceiverClosePolicy receiverClose = new NativeReceiverClosePolicy();
+    private PowerManager.WakeLock receiverWakeLock;
+    private boolean receiverArmed, receiverDenied;
+    private final Runnable receiverProbe = new Runnable() {
         @Override public void run() {
-            if (!serviceRunning || !autoCloseEnabled() || currentDisplayState() != Display.STATE_OFF ||
-                    isInteractiveNow() || !hiddenClose.active(SystemClock.elapsedRealtime())) {
-                finishHiddenClose("probe-ended; visualConfirmation=false");
+            long now = SystemClock.elapsedRealtime();
+            if (!serviceRunning || !autoCloseEnabled() || !receiverClose.active(now)) {
+                finishReceiverClose("probe-ended; visualConfirmation=false");
                 return;
             }
-            tryHiddenClose("readiness-probe");
-            if (hiddenArmed) handler.postDelayed(this, 100);
+            if (receiverClose.shouldSend(now, true)) {
+                try {
+                    // The inspected vendor APK registers this receiver in onAttachedToWindow
+                    // and unregisters it on detach. Delivery invokes the native manager's close
+                    // on its own main thread. No accessibility-tree availability is required.
+                    // Restrict delivery to registered receivers inside this exact package.
+                    Intent close = new Intent(NATIVE_CLOSE_ACTION).setPackage(TARGET_PACKAGE)
+                            .addFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY | Intent.FLAG_RECEIVER_FOREGROUND);
+                    sendBroadcast(close);
+                    writeDiag("RECEIVER REQUEST count=" + receiverClose.sends() +
+                            " display=" + displayStateName(currentDisplayState()) +
+                            " deliveryConfirmed=false visualConfirmation=false");
+                } catch (SecurityException denied) {
+                    receiverDenied = true;
+                    writeDiag("RECEIVER DENIED " + throwableChain(denied));
+                    finishReceiverClose("firmware-denied; native-button fallback");
+                } catch (RuntimeException failure) {
+                    writeDiag("RECEIVER ERROR " + throwableChain(failure));
+                    finishReceiverClose("send-failed; native-button fallback");
+                }
+            }
+            if (receiverArmed) handler.postDelayed(this, NativeReceiverClosePolicy.RETRY_MS);
         }
     };
     private final GreetingRecoveryPolicy greetingRecovery = new GreetingRecoveryPolicy();
@@ -102,7 +121,7 @@ public class SysUiProbeService extends AccessibilityService {
                         DismissController.Observation.UNKNOWN, -1);
                 releaseDismissWakeLock();
                 nativeReady.reset();
-                finishHiddenClose("disabled");
+                finishReceiverClose("disabled");
                 greetingRecovery.reset();
             } else {
                 initMcuBridge();
@@ -247,7 +266,7 @@ public class SysUiProbeService extends AccessibilityService {
         registerReceivers();
         connectedForUi = true;
         initMcuBridge();
-        writeDiag("CLOSE_MODE=guarded-hidden-native directControllerCommands=false");
+        writeDiag("CLOSE_MODE=attach-scoped-receiver-candidate directControllerCommands=false");
         handler.removeCallbacks(greetingWatchdog);
         handler.post(greetingWatchdog);
         writeDiag("A11Y v1.0 watchdog started onMs=" + WATCHDOG_ON_MS + " dozeMs=" + WATCHDOG_DOZE_MS +
@@ -263,7 +282,6 @@ public class SysUiProbeService extends AccessibilityService {
                     String action = intent.getAction();
                     if (Intent.ACTION_SCREEN_ON.equals(action)) {
                         writeDiag("SCREEN_ON");
-                        finishHiddenClose("screen-on; visible fallback");
                         handler.removeCallbacks(greetingWatchdog);
                         handler.post(greetingWatchdog);
                     } else if (Intent.ACTION_SCREEN_OFF.equals(action)) {
@@ -301,14 +319,8 @@ public class SysUiProbeService extends AccessibilityService {
         // All sources feed the same bounded attempt; events cannot schedule duplicate taps.
         if (getSharedPreferences(MainActivity.PREFS, MODE_PRIVATE)
                 .getBoolean(MainActivity.KEY_MCU_AUTOCLOSE, false)) {
-            if (currentDisplayState() == Display.STATE_OFF && !isInteractiveNow()) {
-                if (event.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
-                        eventLooksLikeGoodMorning(event)) armHiddenClose("greeting-event");
-                if (hiddenArmed) {
-                    rememberHiddenSource(event);
-                    tryHiddenClose("sysui-event");
-                }
-            }
+            if (event.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+                    eventLooksLikeGoodMorning(event)) armReceiverClose("greeting-event");
             maybeDismissVisibleGreeting("sysui-event");
         }
 
@@ -355,148 +367,31 @@ public class SysUiProbeService extends AccessibilityService {
         void recycle() { if (close != null) { close.recycle(); close = null; } }
     }
 
-    private void armHiddenClose(String reason) {
-        if (!serviceRunning || !autoCloseEnabled() || currentDisplayState() != Display.STATE_OFF ||
-                isInteractiveNow() || !hiddenClose.arm(SystemClock.elapsedRealtime())) return;
-        hiddenArmed = true;
-        hiddenLastDetail = "";
+    private void armReceiverClose(String reason) {
+        if (!serviceRunning || !autoCloseEnabled() || receiverDenied ||
+                !receiverClose.arm(SystemClock.elapsedRealtime())) return;
+        receiverArmed = true;
         try {
             PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
-            if (hiddenWakeLock == null && pm != null) {
-                hiddenWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, getPackageName() + ":hidden-ready");
-                hiddenWakeLock.setReferenceCounted(false);
+            if (receiverWakeLock == null && pm != null) {
+                receiverWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, getPackageName() + ":native-receiver");
+                receiverWakeLock.setReferenceCounted(false);
             }
-            if (hiddenWakeLock != null) hiddenWakeLock.acquire(HiddenClosePolicy.WINDOW_MS + 1000);
-        } catch (Throwable t) { writeDiag("HIDDEN wake lock unavailable " + throwableChain(t)); }
-        writeDiag("HIDDEN WAIT reason=" + reason + " maxMs=" + HiddenClosePolicy.WINDOW_MS +
+            if (receiverWakeLock != null) receiverWakeLock.acquire(NativeReceiverClosePolicy.WINDOW_MS + 1000);
+        } catch (RuntimeException t) { writeDiag("RECEIVER wake lock unavailable " + throwableChain(t)); }
+        writeDiag("RECEIVER START reason=" + reason + " maxMs=" + NativeReceiverClosePolicy.WINDOW_MS +
                 " directControllerCommands=false");
-        handler.removeCallbacks(hiddenProbe);
-        handler.post(hiddenProbe);
+        handler.removeCallbacks(receiverProbe);
+        handler.post(receiverProbe);
     }
 
-    private void finishHiddenClose(String reason) {
-        handler.removeCallbacks(hiddenProbe);
-        hiddenClose.cancel();
-        if (hiddenSourceRoot != null) { hiddenSourceRoot.recycle(); hiddenSourceRoot = null; }
-        try { if (hiddenWakeLock != null && hiddenWakeLock.isHeld()) hiddenWakeLock.release(); }
-        catch (Throwable ignored) { }
-        if (hiddenArmed) writeDiag("HIDDEN END reason=" + reason + " attempts=" + hiddenClose.attempts());
-        hiddenArmed = false;
-    }
-
-    private void rememberHiddenSource(AccessibilityEvent event) {
-        AccessibilityNodeInfo root = null;
-        try {
-            if (Build.VERSION.SDK_INT >= 33) clearCache();
-            root = event.getSource();
-            for (int depth = 0; root != null && depth < 20; depth++) {
-                AccessibilityNodeInfo parent = root.getParent();
-                if (parent == null) break;
-                root.recycle(); root = parent;
-            }
-            if (root != null && root.refresh() && TARGET_PACKAGE.contentEquals(safe(root.getPackageName())) &&
-                    hasGreetingLayout(root)) {
-                if (hiddenSourceRoot != null) hiddenSourceRoot.recycle();
-                hiddenSourceRoot = root;
-                root = null;
-            }
-        } catch (Throwable t) { writeDiag("HIDDEN source unavailable " + throwableChain(t)); }
-        finally { if (root != null) root.recycle(); }
-    }
-
-    private void tryHiddenClose(String reason) {
-        if (!hiddenArmed) return;
-        GreetingSnapshot snapshot = null;
-        try {
-            snapshot = inspectHiddenGreeting();
-            long elapsed = SystemClock.elapsedRealtime();
-            boolean off = currentDisplayState() == Display.STATE_OFF;
-            boolean live = snapshot.close != null;
-            String detail = live ? "live-window=" + snapshot.windowId : "no-live-greeting";
-            if (!detail.equals(hiddenLastDetail)) { writeDiag("HIDDEN readiness=" + detail); hiddenLastDetail = detail; }
-            boolean click = hiddenClose.observe(elapsed, serviceRunning && autoCloseEnabled(), off,
-                    isInteractiveNow(), live, snapshot.windowId, snapshot.bounds.toShortString());
-            if (click && snapshot.close.refresh() && snapshot.close.isEnabled() &&
-                    snapshot.close.isClickable() && snapshot.close.getWindowId() == snapshot.windowId &&
-                    (TARGET_PACKAGE + ":id/bt_negative").equals(snapshot.close.getViewIdResourceName()) &&
-                    currentDisplayState() == Display.STATE_OFF && !isInteractiveNow()) {
-                Rect freshBounds = new Rect(); snapshot.close.getBoundsInScreen(freshBounds);
-                if (freshBounds.equals(snapshot.bounds)) {
-                    // The vendor callback removes its attached Android view, then sends its own MCU
-                    // dismissal. Never send an independent early MCU close or an OFF-screen gesture.
-                    boolean accepted = snapshot.close.performAction(AccessibilityNodeInfo.ACTION_CLICK);
-                    writeDiag("HIDDEN NATIVE_CLICK windowId=" + snapshot.windowId + " accepted=" + accepted +
-                            " attempt=" + hiddenClose.attempts() + " source=" + reason +
-                            " visualConfirmation=false");
-                }
-            }
-        } catch (Throwable t) { writeDiag("HIDDEN scan error " + throwableChain(t)); }
-        finally { if (snapshot != null) snapshot.recycle(); }
-    }
-
-    private GreetingSnapshot inspectHiddenGreeting() {
-        if (Build.VERSION.SDK_INT >= 33) clearCache();
-        if (hiddenSourceRoot != null) {
-            GreetingSnapshot result = hiddenTargetFromRoot(hiddenSourceRoot);
-            if (result.close != null) return result;
-            result.recycle();
-        }
-        List<AccessibilityWindowInfo> windows = getWindows();
-        try {
-            if (windows != null) {
-                int inspected = 0;
-                for (AccessibilityWindowInfo window : windows) {
-                    if (window == null || inspected++ >= 3) break;
-                    AccessibilityNodeInfo root = window.getRoot();
-                    if (root == null) continue;
-                    try {
-                        GreetingSnapshot result = hiddenTargetFromRoot(root);
-                        if (result.close != null) return result;
-                        result.recycle();
-                    } finally { root.recycle(); }
-                }
-            }
-        } finally {
-            if (windows != null) for (AccessibilityWindowInfo window : windows)
-                if (window != null) window.recycle();
-        }
-        AccessibilityNodeInfo root = getRootInActiveWindow();
-        if (root != null) try { return hiddenTargetFromRoot(root); }
-        finally { root.recycle(); }
-        return new GreetingSnapshot();
-    }
-
-    private boolean hasGreetingLayout(AccessibilityNodeInfo root) {
-        String id = TARGET_PACKAGE + ":id/wake_up_root";
-        if (id.equals(root.getViewIdResourceName())) return true;
-        List<AccessibilityNodeInfo> layouts = root.findAccessibilityNodeInfosByViewId(id);
-        if (layouts == null) return false;
-        try { return !layouts.isEmpty(); }
-        finally { for (AccessibilityNodeInfo node : layouts) if (node != null) node.recycle(); }
-    }
-
-    private GreetingSnapshot hiddenTargetFromRoot(AccessibilityNodeInfo root) {
-        GreetingSnapshot result = new GreetingSnapshot();
-        // A refreshed framework tree is required, not cached text or an MCU "shown" report.
-        // Android services a node query/action only while the target view is attached/shown.
-        if (!root.refresh() || !TARGET_PACKAGE.contentEquals(safe(root.getPackageName())) ||
-                root.getWindowId() < 0 || !hasGreetingLayout(root)) return result;
-        List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByViewId(TARGET_PACKAGE + ":id/bt_negative");
-        if (nodes == null) return result;
-        try {
-            for (AccessibilityNodeInfo node : nodes) {
-                if (node == null || !node.refresh() || !node.isEnabled() || !node.isClickable() ||
-                        node.getWindowId() != root.getWindowId() ||
-                        !TARGET_PACKAGE.contentEquals(safe(node.getPackageName()))) continue;
-                Rect bounds = new Rect(); node.getBoundsInScreen(bounds);
-                if (bounds.isEmpty()) continue;
-                result.close = AccessibilityNodeInfo.obtain(node);
-                result.bounds.set(bounds); result.windowId = node.getWindowId();
-                result.detail = "attached-greeting";
-                return result;
-            }
-        } finally { for (AccessibilityNodeInfo node : nodes) if (node != null) node.recycle(); }
-        return result;
+    private void finishReceiverClose(String reason) {
+        handler.removeCallbacks(receiverProbe);
+        receiverClose.cancel();
+        try { if (receiverWakeLock != null && receiverWakeLock.isHeld()) receiverWakeLock.release(); }
+        catch (RuntimeException ignored) { }
+        if (receiverArmed) writeDiag("RECEIVER END reason=" + reason + " sends=" + receiverClose.sends());
+        receiverArmed = false;
     }
 
     private void maybeDismissVisibleGreeting(String reason) {
@@ -762,7 +657,7 @@ public class SysUiProbeService extends AccessibilityService {
         connectedForUi = false;
         serviceRunning = false;
         nativeReady.reset();
-        finishHiddenClose("service-unbound");
+        finishReceiverClose("service-unbound");
         greetingRecovery.reset();
         writeDiag("SERVICE UNBOUND");
         return super.onUnbind(intent);
@@ -773,7 +668,7 @@ public class SysUiProbeService extends AccessibilityService {
         connectedForUi = false;
         serviceRunning = false;
         nativeReady.reset();
-        finishHiddenClose("service-destroyed");
+        finishReceiverClose("service-destroyed");
         greetingRecovery.reset();
         if (preferences != null) preferences.unregisterOnSharedPreferenceChangeListener(preferenceListener);
         if (displayManager != null) displayManager.unregisterDisplayListener(displayListener);
@@ -869,8 +764,8 @@ public class SysUiProbeService extends AccessibilityService {
         greetingRecovery.onMcuState(SystemClock.elapsedRealtime(), state.great == 0);
         writeDiag("MCU PASSIVE great=" + state.great + " cnt=" + state.count +
                 " controllerCommands=false visualConfirmation=false");
-        if (state.great == 1) armHiddenClose("controller-visible");
-        else finishHiddenClose("controller-hidden; visualConfirmation=false");
+        if (state.great == 1) armReceiverClose("controller-visible");
+        else finishReceiverClose("controller-hidden; visualConfirmation=false");
         kickWatchdog();
     }
 

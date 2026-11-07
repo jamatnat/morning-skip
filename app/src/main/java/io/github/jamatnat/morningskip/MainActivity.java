@@ -190,7 +190,7 @@ public class MainActivity extends Activity {
                 "\nautoClose=" + getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_MCU_AUTOCLOSE, false) +
                 "\naccessibilityEnabled=" + ServiceStatus.enabled(this) +
                 "\nserviceConnected=" + SysUiProbeService.connectedForUi +
-                "\ncloseMode=guarded-hidden-native\nexportTime=" + new java.util.Date() + "\n";
+                "\ncloseMode=attach-scoped-receiver-candidate\nexportTime=" + new java.util.Date() + "\n";
         entries.put("build-info.txt", info.getBytes(StandardCharsets.UTF_8));
         // Snapshot rotating logs under the writer lock; compress outside it.
         synchronized (SysUiProbeService.DIAGNOSTICS_LOCK) {

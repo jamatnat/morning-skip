@@ -1,6 +1,6 @@
 # OnePlus greeting protocol notes
 
-In version 1.0.4 these vendor messages are observed passively.
+Since version 1.0.4 these vendor messages are observed passively.
 The service sends neither queries nor dismissals; the mappings below describe the protocol,
 not independent commands sent by this app. No verified firmware-fix claim is made.
 
@@ -50,3 +50,29 @@ accepted click, missing root or sleeping display is never called proof of visual
 This guards against the modelled early-close ordering; full prevention of the reported
 rare freeze still requires on-watch evidence. No vendor APK or private device trace is
 included in this repository.
+
+## Attach-scoped native receiver (1.0.5)
+
+The inspected SysUI APK registers `heytap.intent.action.UNDER_WATER_NAVI` in the greeting
+view's `onAttachedToWindow`, and unregisters the receiver on detach. Within that APK,
+DEX references to this action occur only in the registration and greeting receiver.
+The receiver calls the same manager routine as native Close: remove the Android view,
+clear its stored reference, then send its MCU disappearance response.
+
+This suggests a different readiness boundary: before attachment, there is no registered
+receiver to close an unfinished view. Once registered, Android dispatches onReceive on
+the SysUI main thread after the current attachment callback completes. Unlike the 1.0.4
+probe, sending the request does not depend on an OFF-screen accessibility tree.
+The 200 ms interval is a bounded redelivery interval for an absent receiver, not a claim
+that the view becomes ready after a fixed delay.
+
+Version 1.0.5 sends foreground, registered-receiver-only broadcasts scoped to the SysUI
+package, only in response to a greeting event/state. It holds a time-limited partial wake
+lock and does not switch the screen on. Controller-hidden state, disable and disconnect
+cancel pending attempts; duplicates cannot extend the three-second deadline. A denied
+broadcast disables this path until the service instance is recreated.
+
+This is not a verified fix. Firmware may protect the action or restrict delivery. AOD
+transitions, delayed callbacks and already orphaned views may still prevent closure.
+The application's public result remains only sent/denied/error plus separate UI evidence.
+No private traces or vendor binaries are included here.

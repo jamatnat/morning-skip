@@ -1,11 +1,9 @@
 # MorningSkip
 
-Version **1.0.4** closes a ready native greeting while the screen is OFF when firmware
-exposes it. The service requires a fresh attached greeting tree; it never sends an
-independent early controller dismissal. If OFF-screen readiness is unavailable, the
-native visible-button fallback closes the greeting after wake.
-
 **[⬇ Download APK](https://github.com/jamatnat/morning-skip/releases/latest/download/MorningSkip.apk)** · [Installation & setup](#installation)
+
+Version **1.0.5** uses the same native greeting-closing mechanism as
+1.0.5-experimental.1. Install it normally over the previous version; settings are preserved.
 
 Automatically dismiss the **“Good morning” greeting on OnePlus Watch 3**, including its afternoon and evening variants.
 
@@ -35,7 +33,12 @@ You can now leave the app. Set Auto-close to **OFF** to stop closing greetings, 
 
 ## How it works
 
-MorningSkip first waits for an attached native greeting window while the screen is OFF. It refreshes the known greeting layout and Close button before a bounded native click. The system handler removes its own window and synchronizes the controller. If no ready window can be accessed while OFF, the app waits for a visible, unobscured Close button after wake. It sends no independent controller query or dismissal commands. It targets the OnePlus greeting, not other notifications or alarms.
+MorningSkip reacts to a greeting signal by requesting closure through the vendor's
+attach-scoped receiver. The inspected receiver uses the native window manager's closing
+routine; it does not toggle water mode. Delivery is restricted to registered receivers in
+`com.oplus.wearable.sysui`, with at most 16 requests in three seconds. The app sends no
+direct MCU commands. Closing before screen-on depends on firmware and delivery timing.
+The visible native-button fallback remains available.
 
 The app relies on vendor-specific behavior, so firmware changes may affect it. It cannot guarantee recovery from a frozen system greeting.
 

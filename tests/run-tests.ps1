@@ -14,10 +14,10 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Native readiness compilation failed' }
     java -cp build/policy-tests io.github.jamatnat.morningskip.NativeReadyTest
     if ($LASTEXITCODE -ne 0) { throw 'Native readiness checks failed' }
-    java -m jdk.compiler/com.sun.tools.javac.Main --release 8 -d build/policy-tests app/src/main/java/io/github/jamatnat/morningskip/HiddenClosePolicy.java tests/HiddenCloseTest.java
-    if ($LASTEXITCODE -ne 0) { throw 'Hidden-close compilation failed' }
-    java -cp build/policy-tests io.github.jamatnat.morningskip.HiddenCloseTest
-    if ($LASTEXITCODE -ne 0) { throw 'Hidden-close checks failed' }
+    java -m jdk.compiler/com.sun.tools.javac.Main --release 8 -d build/policy-tests app/src/main/java/io/github/jamatnat/morningskip/NativeReceiverClosePolicy.java tests/NativeReceiverCloseTest.java
+    if ($LASTEXITCODE -ne 0) { throw 'Native-receiver compilation failed' }
+    java -cp build/policy-tests io.github.jamatnat.morningskip.NativeReceiverCloseTest
+    if ($LASTEXITCODE -ne 0) { throw 'Native-receiver checks failed' }
     if (Select-String -Path app/src/main/java/io/github/jamatnat/morningskip/SysUiProbeService.java -Pattern 'sendMessageToMcu|sendMcuCommand|queryMcuGreeting|ProcessBuilder|Runtime.getRuntime') {
         throw 'Native-only service contains an external close/restart path'
     }

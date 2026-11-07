@@ -191,9 +191,9 @@ jobs:
           script, root, or additional ADB setup is required. Existing settings are preserved.
           NOTES
           fi
-          release_flags=()
+          release_flags=(--latest)
           if [[ "$VERSION" == *-experimental.* ]]; then
-            release_flags+=(--prerelease --latest=false)
+            release_flags=(--prerelease --latest=false)
             cat > release-notes.md <<'NOTES'
           Experimental native UI dismissal for OnePlus Watch 3.
 
@@ -208,6 +208,48 @@ jobs:
           The APK uses the existing repository signing key. This is an experimental build;
           prevention of the firmware freeze still requires on-watch testing. The greeting
           may briefly appear before the app closes it. This does not replace the stable release.
+          NOTES
+          fi
+          if [[ "$VERSION" == '1.0.5-experimental.1' ]]; then
+            cat > release-notes.md <<'NOTES'
+          Experimental native-receiver closing for OnePlus Watch 3.
+
+          This build requests closure through the system greeting receiver registered during
+          window attachment. It does not require an accessible Close button while the screen
+          is OFF. The system handler removes its own window and responds to the controller.
+
+          - Requests target registered receivers inside the SysUI package only.
+          - Retries are limited to three seconds and do not turn on the screen.
+          - No direct controller query/dismiss commands are sent by MorningSkip.
+          - Native-button closing remains available as a fallback.
+
+          Download **MorningSkip.apk** and install it over your current version using your
+          usual installer. The APK uses the existing signing key, with version code 8.
+          Keep Accessibility and Auto-close enabled. No script, helper, root or additional
+          ADB setup is required.
+
+          **Experimental:** permission to send the vendor action, invisible closing and
+          prevention of the rare freeze have not been confirmed on a physical watch.
+          This prerelease does not replace the latest stable release, 1.0.4.
+          NOTES
+          fi
+          if [[ "$VERSION" == '1.0.5' ]]; then
+            cat > release-notes.md <<'NOTES'
+          Official release of the native-receiver closing mechanism from 1.0.5-experimental.1.
+          The greeting-closing implementation is unchanged from that prerelease.
+
+          - Requests closure through the system greeting receiver registered during window attachment.
+          - Does not require an accessible Close button while the screen is OFF.
+          - Limits requests to three seconds without turning on the screen.
+          - Retains native-button closing as a fallback and sends no direct MCU commands.
+
+          Download **MorningSkip.apk** and install it normally over your current version,
+          including 1.0.5-experimental.1. The existing signing key and version code 9 support
+          updating without uninstalling. Settings are preserved; keep Accessibility and
+          Auto-close enabled. No helper, script, root or extra ADB setup is required.
+
+          Closing behavior depends on firmware. Long-term prevention of the rare firmware
+          freeze is still being evaluated.
           NOTES
           fi
           gh release create "v$VERSION" MorningSkip.apk SHA256SUMS.txt \
