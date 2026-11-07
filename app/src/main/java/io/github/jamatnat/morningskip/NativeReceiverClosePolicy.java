@@ -1,10 +1,10 @@
 package io.github.jamatnat.morningskip;
 
-/** Bounded delivery attempts to the vendor's attach-scoped native receiver. */
+/** One request per bounded episode: avoid queued duplicate native close callbacks. */
 final class NativeReceiverClosePolicy {
     static final long WINDOW_MS = 3000;
     static final long RETRY_MS = 200;
-    static final int MAX_SENDS = 16;
+    static final int MAX_SENDS = 1;
     private long deadline = -1, nextArm, nextSend;
     private int sends;
 

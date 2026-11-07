@@ -19,3 +19,7 @@ if grep -nE 'sendMessageToMcu|sendMcuCommand|queryMcuGreeting|ProcessBuilder|Run
   echo 'FAIL: native-only service contains an external close/restart path' >&2
   exit 1
 fi
+
+java -m jdk.compiler/com.sun.tools.javac.Main --release 8 -d build/policy-tests \
+  app/src/main/java/io/github/jamatnat/morningskip/GreetingText.java tests/GreetingTextTest.java
+java -cp build/policy-tests io.github.jamatnat.morningskip.GreetingTextTest

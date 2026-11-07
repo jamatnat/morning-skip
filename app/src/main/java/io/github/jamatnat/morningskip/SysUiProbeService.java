@@ -98,7 +98,7 @@ public class SysUiProbeService extends AccessibilityService {
                     finishReceiverClose("send-failed; native-button fallback");
                 }
             }
-            if (receiverArmed) handler.postDelayed(this, NativeReceiverClosePolicy.RETRY_MS);
+            if (receiverArmed) finishReceiverClose("single-request-ended; visualConfirmation=false");
         }
     };
     private final GreetingRecoveryPolicy greetingRecovery = new GreetingRecoveryPolicy();
@@ -266,7 +266,7 @@ public class SysUiProbeService extends AccessibilityService {
         registerReceivers();
         connectedForUi = true;
         initMcuBridge();
-        writeDiag("CLOSE_MODE=attach-scoped-receiver-candidate directControllerCommands=false");
+        writeDiag("CLOSE_MODE=single-request-receiver-candidate directControllerCommands=false");
         handler.removeCallbacks(greetingWatchdog);
         handler.post(greetingWatchdog);
         writeDiag("A11Y v1.0 watchdog started onMs=" + WATCHDOG_ON_MS + " dozeMs=" + WATCHDOG_DOZE_MS +
@@ -353,7 +353,7 @@ public class SysUiProbeService extends AccessibilityService {
         }
         if (event.getContentDescription() != null) sb.append(event.getContentDescription());
         String t = sb.toString().toLowerCase(Locale.ROOT);
-        return t.contains("good morning") || t.contains("доброе утро");
+        return GreetingText.matches(t);
     }
 
 
@@ -593,7 +593,7 @@ public class SysUiProbeService extends AccessibilityService {
     private boolean nodeContainsGreeting(AccessibilityNodeInfo node, int depth, Counter counter) {
         if (node == null || depth > 24 || counter.count++ >= 900) return false;
         String text = (safe(node.getText()) + " " + safe(node.getContentDescription())).toLowerCase(Locale.ROOT);
-        if (text.contains("good morning") || text.contains("доброе утро")) return true;
+        if (GreetingText.matches(text)) return true;
         for (int i = 0; i < Math.min(node.getChildCount(), 100); i++) {
             AccessibilityNodeInfo child = node.getChild(i);
             if (child == null) continue;

@@ -8,7 +8,7 @@ on:
       - 'tests/**'
       - '.github/workflows/android-apk.yml'
   push:
-    branches: [main, fix/native-ui-dismissal]
+    branches: [main, fix/native-ui-dismissal, fix/single-close-attempt]
     paths:
       - 'app/**'
       - 'tests/**'
@@ -123,7 +123,7 @@ jobs:
   release:
     name: Publish version to Releases
     needs: build
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/fix/native-ui-dismissal'
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/fix/native-ui-dismissal' || github.ref == 'refs/heads/fix/single-close-attempt'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -250,6 +250,25 @@ jobs:
 
           Closing behavior depends on firmware. Long-term prevention of the rare firmware
           freeze is still being evaluated.
+          NOTES
+          fi
+          if [[ "$VERSION" == '1.0.6-experimental.1' ]]; then
+            cat > release-notes.md <<'NOTES'
+          Experimental single-request greeting closing for OnePlus Watch 3.
+
+          - Sends one native receiver request per episode instead of a timed series.
+          - Recognizes Good afternoon and Good evening events as well as Good morning,
+            including their Russian equivalents. Package and window checks remain in place.
+          - Preserves the visible native-button fallback and sends no direct MCU commands.
+
+          This tests whether repeated close requests contribute to a vendor window lifecycle
+          race. It is NOT a verified prevention or recovery fix. A single request can miss a
+          receiver that is not yet registered, so the greeting may appear before fallback closes it.
+          An already stuck system window may still need a SysUI restart.
+
+          Install MorningSkip.apk over the current app. Version code 10 and the existing
+          signing key support an update without uninstalling or losing settings.
+          This prerelease does not replace stable 1.0.5.
           NOTES
           fi
           gh release create "v$VERSION" MorningSkip.apk SHA256SUMS.txt \
