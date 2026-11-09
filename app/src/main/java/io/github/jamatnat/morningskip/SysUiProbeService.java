@@ -98,7 +98,7 @@ public class SysUiProbeService extends AccessibilityService {
                     finishReceiverClose("send-failed; native-button fallback");
                 }
             }
-            if (receiverArmed) finishReceiverClose("single-request-ended; visualConfirmation=false");
+            if (receiverArmed) handler.postDelayed(this, NativeReceiverClosePolicy.RETRY_MS);
         }
     };
     private final GreetingRecoveryPolicy greetingRecovery = new GreetingRecoveryPolicy();
@@ -266,7 +266,7 @@ public class SysUiProbeService extends AccessibilityService {
         registerReceivers();
         connectedForUi = true;
         initMcuBridge();
-        writeDiag("CLOSE_MODE=single-request-receiver-candidate directControllerCommands=false");
+        writeDiag("CLOSE_MODE=bounded-receiver-restored directControllerCommands=false");
         handler.removeCallbacks(greetingWatchdog);
         handler.post(greetingWatchdog);
         writeDiag("A11Y v1.0 watchdog started onMs=" + WATCHDOG_ON_MS + " dozeMs=" + WATCHDOG_DOZE_MS +

@@ -271,6 +271,23 @@ jobs:
           This prerelease does not replace stable 1.0.5.
           NOTES
           fi
+          if [[ "$VERSION" == '1.0.6-experimental.2' ]]; then
+            cat > release-notes.md <<'NOTES'
+          Restore the greeting-closing behavior of 1.0.5.
+
+          The single-request experiment could leave a greeting unclosed. This build restores
+          1.0.5's bounded native-receiver retries, cancellation and native-button fallback.
+          Afternoon/evening recognition in English and Russian is retained.
+
+          This is a regression rollback, NOT a fix for the rare stuck system greeting.
+          Invisible closing and prevention of firmware freezes are not guaranteed.
+          No direct MCU commands, shell helper or automatic SysUI restart are added.
+
+          Install MorningSkip.apk normally over 1.0.6-experimental.1 or 1.0.5.
+          Version code 11 and the existing signing key preserve update compatibility and settings.
+          This prerelease does not replace stable 1.0.5.
+          NOTES
+          fi
           gh release create "v$VERSION" MorningSkip.apk SHA256SUMS.txt \
             --target "$GITHUB_SHA" --title "MorningSkip $VERSION" \
             --notes-file release-notes.md "${release_flags[@]}"

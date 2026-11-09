@@ -14,8 +14,8 @@ public final class NativeReceiverCloseTest {
         eq(true, p.shouldSend(100, true)); // No arbitrary readiness delay.
         eq(false, p.shouldSend(101, true));
         eq(false, p.arm(250)); // Duplicate events cannot extend the probe.
-        eq(false, p.shouldSend(300, true));
-        int sends = 1;
+        eq(true, p.shouldSend(300, true));
+        int sends = 2;
         for (int t = 500; t <= 3100; t += 200) if (p.shouldSend(t, true)) sends++;
         eq(true, sends == NativeReceiverClosePolicy.MAX_SENDS);
         eq(false, p.shouldSend(3100, true));
